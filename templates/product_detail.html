@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}{{ product[1] }} - SecureShop{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-6">
+        <img src="{{ product[6] or url_for('static', filename='images/placeholder.jpg') }}" class="img-fluid rounded" alt="{{ product[1] }}">
+    </div>
+    <div class="col-md-6">
+        <h1>{{ product[1] }}</h1>
+        <p class="text-muted">{{ product[5] }}</p>
+        <p class="lead">${{ "%.2f"|format(product[3]) }}</p>
+        <p>{{ product[2] }}</p>
+        
+        <div class="mb-3">
+            <label for="quantity" class="form-label">Quantity:</label>
+            {% set max_qty = product[4] + 1 %}
+            {% set max_qty = 11 if max_qty > 11 else max_qty %}
+            <select class="form-select" id="quantity" style="width: auto; display: inline-block;">
+                {% for i in range(1, max_qty) %}
+                <option value="{{ i }}">{{ i }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        {% if session.user_id %}
+        <div class="d-flex gap-2">
+            <button class="btn btn-primary btn-lg add-to-cart" data-product-id="{{ product[0] }}">Add to Cart</button>
+            <a href="{{ url_for('checkout') }}" class="btn btn-success btn-lg">Buy Now</a>
+        </div>
+        {% else %}
+        <div class="alert alert-warning">
+            <p>Please <a href="{{ url_for('login') }}">login</a> to add items to your cart.</p>
+        </div>
+        {% endif %}
+        
+        <div class="mt-4">
+            <h5>Product Details</h5>
+            <ul class="list-unstyled">
+                <li><strong>Category:</strong> {{ product[5] }}</li>
+                <li><strong>Stock:</strong> {{ product[4] }} units available</li>
+                <li><strong>Product ID:</strong> {{ product[0] }}</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-5">
+    <div class="col-md-12">
+        <h3>Related Products</h3>
+        <div class="row">
+            <!-- This would typically show related products from the same category -->
+            <div class="col-md-3">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <p class="text-muted">More products coming soon...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const addToCartButton = document.querySelector('.add-to-cart');
+    
+    if (addToCartButton) {
+        addToCartButton.addEventListener('click', function() {
+            const productId = this.dataset.productId;
+            const quantity = document.getElementById('quantity').value;
+            
+            fetch('/add_to_cart', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `product_id=${productId}&quantity=${quantity}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Product added to cart!');
+                } else {
+                    alert('Error adding product to cart');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error adding product to cart');
+            });
+        });
+    }
+});
+</script>
+{% endblock %}

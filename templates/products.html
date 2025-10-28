@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}Products - SecureShop{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>Our Products</h2>
+            <div class="d-flex gap-2">
+                <form method="GET" class="d-flex">
+                    <input type="text" name="search" class="form-control" placeholder="Search products..." value="{{ search }}">
+                    <button type="submit" class="btn btn-outline-primary">Search</button>
+                </form>
+                <div class="dropdown">
+                    <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                        Categories
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="{{ url_for('products') }}">All Categories</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('products', category='Electronics') }}">Electronics</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('products', category='Furniture') }}">Furniture</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('products', category='Appliances') }}">Appliances</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        {% if products %}
+        <div class="row">
+            {% for product in products %}
+            <div class="col-md-4 mb-4">
+                <div class="card h-100">
+                    <img src="{{ product[6] or url_for('static', filename='images/placeholder.jpg') }}" class="card-img-top" alt="{{ product[1] }}" style="height: 200px; object-fit: cover;">
+                    <div class="card-body d-flex flex-column">
+                        <h5 class="card-title">{{ product[1] }}</h5>
+                        <p class="card-text">{{ product[2] }}</p>
+                        <div class="mt-auto">
+                            <p class="card-text">
+                                <strong>${{ "%.2f"|format(product[3]) }}</strong>
+                                <span class="badge bg-secondary ms-2">{{ product[5] }}</span>
+                            </p>
+                            <p class="text-muted">Stock: {{ product[4] }} units</p>
+                            <div class="d-flex gap-2">
+                                <a href="{{ url_for('product_detail', product_id=product[0]) }}" class="btn btn-primary">View Details</a>
+                                {% if session.user_id %}
+                                <button class="btn btn-outline-success add-to-cart" data-product-id="{{ product[0] }}">Add to Cart</button>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="alert alert-info text-center">
+            <h4>No products found</h4>
+            <p>Try adjusting your search criteria or browse all products.</p>
+            <a href="{{ url_for('products') }}" class="btn btn-primary">View All Products</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const addToCartButtons = document.querySelectorAll('.add-to-cart');
+    
+    addToCartButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const productId = this.dataset.productId;
+            
+            fetch('/add_to_cart', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `product_id=${productId}&quantity=1`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Product added to cart!');
+                } else {
+                    alert('Error adding product to cart');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error adding product to cart');
+            });
+        });
+    });
+});
+</script>
+{% endblock %}

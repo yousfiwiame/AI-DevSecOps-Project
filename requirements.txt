@@ -1,0 +1,46 @@
+# Flask Web Application
+Flask==3.0.0
+Flask-CORS==4.0.0
+Werkzeug==3.0.1
+gunicorn==21.2.0
+
+# E-commerce specific dependencies
+PyJWT==2.8.0
+requests==2.31.0
+
+# Prometheus Monitoring
+prometheus-client==0.19.0
+
+# Security Tools Integration
+# Note: These will be called via command line in the pipeline
+
+# LLM Integration
+transformers==4.46.0
+torch==2.9.0
+accelerate==0.34.0
+huggingface-hub==0.26.0
+tokenizers>=0.20.0
+
+# For API-based LLMs
+openai==1.3.0
+anthropic==0.7.0
+
+# Evaluation Metrics
+nltk==3.8.1
+rouge-score==0.1.2
+
+# Report Parsing
+beautifulsoup4==4.12.2
+lxml>=5.0.0
+xmltodict==0.13.0
+
+# Utilities
+numpy>=2.1.0; python_version>="3.13"
+numpy>=1.26.0,<2.0.0; python_version<"3.13"
+requests==2.31.0
+python-dotenv==1.0.0
+pyyaml==6.0.1
+
+# Data visualization
+pandas==2.2.3
+matplotlib>=3.9.0

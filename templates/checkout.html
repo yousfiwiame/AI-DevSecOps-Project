@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block title %}Checkout - SecureShop{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <h2>Checkout</h2>
+        
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Order Items</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th>Quantity</th>
+                                <th>Price</th>
+                                <th>Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in cart_products %}
+                            <tr>
+                                <td>{{ item.product[1] }}</td>
+                                <td>{{ item.quantity }}</td>
+                                <td>${{ "%.2f"|format(item.product[3]) }}</td>
+                                <td>${{ "%.2f"|format(item.product[3] * item.quantity) }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h5>Payment Information</h5>
+            </div>
+            <div class="card-body">
+                <form id="checkout-form">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="card_number" class="form-label">Card Number</label>
+                                <input type="text" class="form-control" id="card_number" name="card_number" placeholder="1234 5678 9012 3456" required>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="expiry" class="form-label">Expiry Date</label>
+                                <input type="text" class="form-control" id="expiry" name="expiry" placeholder="MM/YY" required>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="mb-3">
+                                <label for="cvv" class="form-label">CVV</label>
+                                <input type="text" class="form-control" id="cvv" name="cvv" placeholder="123" required>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="cardholder_name" class="form-label">Cardholder Name</label>
+                        <input type="text" class="form-control" id="cardholder_name" name="cardholder_name" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="payment_method" class="form-label">Payment Method</label>
+                        <select class="form-select" id="payment_method" name="payment_method" required>
+                            <option value="">Select Payment Method</option>
+                            <option value="credit_card">Credit Card</option>
+                            <option value="debit_card">Debit Card</option>
+                        </select>
+                    </div>
+                    
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-success btn-lg">Complete Order</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5>Order Summary</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <span>Subtotal:</span>
+                    <span>${{ "%.2f"|format(total) }}</span>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span>Shipping:</span>
+                    <span>$0.00</span>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span>Tax:</span>
+                    <span>$0.00</span>
+                </div>
+                <hr>
+                <div class="d-flex justify-content-between">
+                    <strong>Total:</strong>
+                    <strong>${{ "%.2f"|format(total) }}</strong>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card mt-3">
+            <div class="card-header">
+                <h6>Security Notice</h6>
+            </div>
+            <div class="card-body">
+                <small class="text-muted">
+                    <i class="fas fa-lock"></i> Your payment information is encrypted and secure.
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('checkout-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    const paymentData = {
+        card_number: formData.get('card_number'),
+        expiry: formData.get('expiry'),
+        cvv: formData.get('cvv'),
+        cardholder_name: formData.get('cardholder_name'),
+        payment_method: formData.get('payment_method'),
+        amount: {{ total }}
+    };
+    
+    // Process payment
+    fetch('/payment', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(paymentData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Create order
+            return fetch('/checkout', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'checkout=true'
+            });
+        } else {
+            throw new Error('Payment failed');
+        }
+    })
+    .then(response => {
+        if (response.ok) {
+            window.location.href = '/order_success/1'; // In real app, use actual order ID
+        } else {
+            throw new Error('Order creation failed');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Payment processing failed. Please try again.');
+    });
+});
+</script>
+{% endblock %}
