@@ -61,9 +61,12 @@ jobs:
     - name: Run OWASP Dependency-Check
       run: |
         echo "Running OWASP Dependency-Check..."
+        # Get latest release version
+        LATEST_VERSION=$(curl -s https://api.github.com/repos/jeremylong/DependencyCheck/releases/latest | grep '"tag_name":' | cut -d '"' -f 4 | sed 's/v//')
         # Download and run dependency-check
-        wget https://github.com/jeremylong/DependencyCheck/releases/latest/download/dependency-check-8.4.0-release.zip
-        unzip dependency-check-8.4.0-release.zip
+        wget https://github.com/jeremylong/DependencyCheck/releases/download/v${LATEST_VERSION}/dependency-check-${LATEST_VERSION}-release.zip
+        unzip dependency-check-${LATEST_VERSION}-release.zip
+        chmod +x dependency-check/bin/dependency-check.sh
         ./dependency-check/bin/dependency-check.sh --scan . --format JSON --out reports/dependency-check-report.json || true
         ./dependency-check/bin/dependency-check.sh --scan . --format HTML --out reports/dependency-check-report.html || true
     
