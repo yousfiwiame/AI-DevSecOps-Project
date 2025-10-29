@@ -16,7 +16,7 @@ prometheus-client==0.19.0
 
 # LLM Integration
 transformers==4.46.0
-torch==2.9.0
+torch==2.8.0
 accelerate==0.34.0
 huggingface-hub==0.26.0
 tokenizers>=0.20.0
