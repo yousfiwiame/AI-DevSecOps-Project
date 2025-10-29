@@ -6,13 +6,29 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      scan_type:
+        description: 'Type of scan to run'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - baseline
+          - quick
   schedule:
-    - cron: '0 3 * * 1'
+    # Run weekly security scan
+    - cron: '0 3 * * 1'  # Every Monday at 3 AM
 
 jobs:
   dast-ecommerce:
     name: Dynamic Security Testing - E-Commerce App
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+      issues: write
     
     steps:
     - name: Checkout code
@@ -65,18 +81,20 @@ jobs:
       with:
         target: 'http://localhost:5000'
         cmd_options: '-a -j'
-        allow_issue_writing: false
+        allow_issue_writing: true
         fail_action: false
-        artifact_name: 'zap_baseline_scan'
+        rules_file_name: '.zap/rules.tsv'
+        artifact_name: 'zap-baseline-scan'
     
     - name: OWASP ZAP Full Scan
       uses: zaproxy/action-full-scan@v0.10.0
       with:
         target: 'http://localhost:5000'
         cmd_options: '-a -j'
-        allow_issue_writing: false
+        allow_issue_writing: true
         fail_action: false
-        artifact_name: 'zap_full_scan'
+        rules_file_name: '.zap/rules.tsv'
+        artifact_name: 'zap-full-scan'
     
     - name: Test Authentication Vulnerabilities
       run: |
@@ -117,333 +135,4 @@ jobs:
         echo "Testing session security..."
         curl -X GET http://localhost:5000/cart \
           --cookie "session=fake-session-token" \
-          -o reports/dast/cart-session-test.html || true
-    
-    - name: Test Payment Processing Vulnerabilities
-      run: |
-        echo "Testing Payment Security..."
-        
-        echo "Testing payment bypass..."
-        curl -X POST http://localhost:5000/api/payment/process \
-          -H "Content-Type: application/json" \
-          -d '{"amount": 0.01, "order_id": 1}' \
-          -o reports/dast/payment-bypass-test.json || true
-        
-        echo "Testing payment replay attack..."
-        curl -X POST http://localhost:5000/api/payment/process \
-          -H "Content-Type: application/json" \
-          -d '{"transaction_id": "OLD_TRANSACTION_123"}' \
-          -o reports/dast/payment-replay-test.json || true
-    
-    - name: Test Admin Panel Security
-      run: |
-        echo "Testing Admin Panel Security..."
-        
-        echo "Testing unauthorized admin access..."
-        curl -X GET http://localhost:5000/admin \
-          -o reports/dast/admin-unauth-test.html \
-          -w "\nStatus: %{http_code}\n" || true
-        
-        echo "Testing admin API access..."
-        for endpoint in /admin/users /admin/orders /admin/settings; do
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:5000$endpoint")
-          echo "$endpoint: HTTP $STATUS" >> reports/dast/admin-endpoints.txt
-        done
-    
-    - name: Test File Upload Vulnerabilities
-      run: |
-        echo "Testing File Upload Security..."
-        
-        echo "Testing malicious file upload..."
-        echo '<?php system($_GET["cmd"]); ?>' > /tmp/malicious.php
-        curl -X POST http://localhost:5000/upload \
-          -F "file=@/tmp/malicious.php" \
-          -o reports/dast/upload-php-test.html || true
-        
-        echo "Testing large file upload..."
-        dd if=/dev/zero of=/tmp/large.bin bs=1M count=100 2>/dev/null
-        curl -X POST http://localhost:5000/upload \
-          -F "file=@/tmp/large.bin" \
-          -o reports/dast/upload-dos-test.html \
-          --max-time 5 || true
-        
-        echo "Testing path traversal in upload..."
-        echo "test" > /tmp/test.txt
-        curl -X POST http://localhost:5000/upload \
-          -F "file=@/tmp/test.txt;filename=../../etc/passwd" \
-          -o reports/dast/upload-traversal-test.html || true
-    
-    - name: Test API Injection Vulnerabilities
-      run: |
-        echo "Testing API Security..."
-        
-        echo "Testing SQL Injection in /api/user..."
-        curl "http://localhost:5000/api/user/1' OR '1'='1" \
-          -o reports/dast/api-user-sqli.json || true
-        
-        echo "Testing Command Injection..."
-        curl -X POST http://localhost:5000/api/process \
-          -H "Content-Type: application/json" \
-          -d '{"command": "ls -la; cat /etc/passwd"}' \
-          -o reports/dast/api-command-injection.json || true
-        
-        echo "Testing XSS in search..."
-        curl "http://localhost:5000/api/search?q=<script>alert('XSS')</script>" \
-          -o reports/dast/api-search-xss.html || true
-        
-        echo "Testing NoSQL Injection..."
-        curl -X POST http://localhost:5000/api/user \
-          -H "Content-Type: application/json" \
-          -d '{"username": {"$ne": null}, "password": {"$ne": null}}' \
-          -o reports/dast/api-nosql-injection.json || true
-    
-    - name: Test Data Export Security
-      run: |
-        echo "Testing Data Export Security..."
-        
-        echo "Testing unauthorized export..."
-        curl "http://localhost:5000/api/export?user_id=1" \
-          -o reports/dast/export-unauth-test.json || true
-        
-        echo "Testing mass data extraction..."
-        curl "http://localhost:5000/api/export?limit=999999" \
-          -o reports/dast/export-mass-data.json || true
-    
-    - name: Test Session Management
-      run: |
-        echo "Testing Session Management..."
-        
-        echo "Testing session fixation..."
-        curl http://localhost:5000/login \
-          --cookie "session=attacker-controlled-session" \
-          -o reports/dast/session-fixation.html || true
-        
-        echo "Testing session timeout..."
-        curl http://localhost:5000/dashboard \
-          --cookie "session=expired-session-token" \
-          -o reports/dast/session-timeout.html || true
-    
-    - name: Run Nuclei Scanner
-      run: |
-        echo "Running Nuclei Vulnerability Scanner..."
-        
-        wget -q https://github.com/projectdiscovery/nuclei/releases/download/v3.3.2/nuclei_3.3.2_linux_amd64.zip
-        unzip -q nuclei_3.3.2_linux_amd64.zip
-        chmod +x nuclei
-        
-        ./nuclei -u http://localhost:5000 \
-          -t cves/ \
-          -t vulnerabilities/ \
-          -t exposures/ \
-          -t misconfiguration/ \
-          -json-export reports/dast/nuclei-results.json \
-          -markdown-export reports/dast/nuclei-results.md \
-          -severity critical,high,medium \
-          || true
-    
-    - name: Run Nikto Scanner
-      run: |
-        echo "Running Nikto Web Server Scanner..."
-        
-        sudo apt-get update -qq
-        sudo apt-get install -y nikto
-        
-        nikto -h http://localhost:5000 \
-          -Format json \
-          -output reports/dast/nikto-report.json \
-          || true
-        
-        nikto -h http://localhost:5000 \
-          -Format txt \
-          -output reports/dast/nikto-report.txt \
-          || true
-    
-    - name: Test for Sensitive Information Exposure
-      run: |
-        echo "Testing for Sensitive Information..."
-        
-        ENDPOINTS=(
-          "/.env"
-          "/.git/config"
-          "/config.py"
-          "/database.db"
-          "/ecommerce.db"
-          "/backup.sql"
-          "/admin/config"
-          "/.aws/credentials"
-          "/api/keys"
-          "/phpinfo.php"
-          "/server-status"
-          "/.DS_Store"
-          "/web.config"
-        )
-        
-        echo "Testing sensitive endpoints..." > reports/dast/sensitive-exposure.txt
-        for endpoint in "${ENDPOINTS[@]}"; do
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:5000$endpoint")
-          echo "$endpoint: HTTP $STATUS" >> reports/dast/sensitive-exposure.txt
-          if [ "$STATUS" = "200" ]; then
-            echo "WARNING: $endpoint is accessible!" >> reports/dast/sensitive-exposure.txt
-          fi
-        done
-        
-        cat reports/dast/sensitive-exposure.txt
-    
-    - name: Test Security Headers
-      run: |
-        echo "Testing Security Headers..."
-        
-        curl -I http://localhost:5000 > reports/dast/security-headers.txt
-        
-        HEADERS=(
-          "X-Frame-Options"
-          "X-Content-Type-Options"
-          "Content-Security-Policy"
-          "Strict-Transport-Security"
-          "X-XSS-Protection"
-        )
-        
-        echo "=== Security Headers Analysis ===" >> reports/dast/security-headers.txt
-        for header in "${HEADERS[@]}"; do
-          if curl -sI http://localhost:5000 | grep -qi "$header"; then
-            echo "PASS: $header: Present" >> reports/dast/security-headers.txt
-          else
-            echo "FAIL: $header: Missing" >> reports/dast/security-headers.txt
-          fi
-        done
-        
-        cat reports/dast/security-headers.txt
-    
-    - name: Generate DAST Summary Report
-      run: |
-        cat > reports/dast/SUMMARY.md << 'EOF'
-        # DAST Security Scan Summary - E-Commerce Application
-        
-        ## Scan Overview
-        - Target: Flask E-Commerce Application
-        - URL: http://localhost:5000
-        - Scan Type: Dynamic Application Security Testing (DAST)
-        
-        ## Tools Used
-        1. OWASP ZAP - Web Application Scanner
-        2. Nuclei - Vulnerability Scanner
-        3. Nikto - Web Server Scanner
-        4. Custom E-Commerce Security Tests
-        
-        ## Areas Tested
-        
-        ### Authentication & Authorization
-        - SQL Injection in login forms
-        - Brute force protection
-        - Session management
-        - Password reset vulnerabilities
-        
-        ### E-Commerce Specific
-        - Shopping cart price manipulation
-        - Payment processing security
-        - Order tampering
-        - Checkout bypass attempts
-        
-        ### Admin Panel
-        - Unauthorized access attempts
-        - Privilege escalation
-        - Admin API security
-        
-        ### File Operations
-        - Malicious file upload
-        - Path traversal
-        - File type validation
-        
-        ### API Security
-        - SQL/NoSQL injection
-        - Command injection
-        - XSS vulnerabilities
-        - Data exposure
-        
-        ### General Security
-        - Security headers
-        - CORS configuration
-        - Sensitive file exposure
-        - Information disclosure
-        
-        ## Next Steps
-        1. Review all generated reports
-        2. Prioritize critical/high severity issues
-        3. Fix vulnerabilities
-        4. Re-run DAST scan to verify fixes
-        5. Consider adding automated security tests
-        
-        EOF
-        
-        cat reports/dast/SUMMARY.md
-    
-    - name: Upload DAST Reports
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: dast_ecommerce_reports
-        path: |
-          reports/dast/
-          zap_baseline_scan/
-          zap_full_scan/
-        retention-days: 30
-    
-    - name: Create GitHub Summary
-      if: always()
-      run: |
-        echo "# DAST Security Scan Results" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "## E-Commerce Security Testing Complete" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        TEST_COUNT=$(ls -1 reports/dast/*.txt reports/dast/*.html reports/dast/*.json 2>/dev/null | wc -l)
-        echo "Total Test Reports Generated: $TEST_COUNT" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        echo "## Tests Performed" >> $GITHUB_STEP_SUMMARY
-        echo "- Authentication security" >> $GITHUB_STEP_SUMMARY
-        echo "- Shopping cart vulnerabilities" >> $GITHUB_STEP_SUMMARY
-        echo "- Payment processing security" >> $GITHUB_STEP_SUMMARY
-        echo "- Admin panel access control" >> $GITHUB_STEP_SUMMARY
-        echo "- File upload security" >> $GITHUB_STEP_SUMMARY
-        echo "- API injection testing" >> $GITHUB_STEP_SUMMARY
-        echo "- Sensitive data exposure" >> $GITHUB_STEP_SUMMARY
-        echo "- Security headers analysis" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        echo "## Download Reports" >> $GITHUB_STEP_SUMMARY
-        echo "All detailed reports are available in the dast_ecommerce_reports artifact." >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        if [ -f reports/dast/nuclei-results.md ]; then
-          echo "## Nuclei Scan Highlights" >> $GITHUB_STEP_SUMMARY
-          head -n 50 reports/dast/nuclei-results.md >> $GITHUB_STEP_SUMMARY || true
-        fi
-        
-        if [ -f reports/dast/sensitive-exposure.txt ]; then
-          echo "## Sensitive Endpoint Scan" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat reports/dast/sensitive-exposure.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-        fi
-    
-    - name: Stop Flask Application
-      if: always()
-      run: |
-        if [ ! -z "$APP_PID" ]; then
-          echo "Stopping Flask application (PID: $APP_PID)..."
-          kill $APP_PID 2>/dev/null || true
-        fi
-    
-    - name: Check for Critical Vulnerabilities
-      if: false
-      run: |
-        echo "Checking for critical vulnerabilities..."
-        
-        if grep -riq "critical" reports/dast/*.json 2>/dev/null; then
-          echo "CRITICAL vulnerabilities detected!"
-          echo "Please review the DAST reports and fix issues before merging."
-          exit 1
-        fi
-        
-        echo "No critical vulnerabilities detected."
+          -o reports/dast/cart-session-test
