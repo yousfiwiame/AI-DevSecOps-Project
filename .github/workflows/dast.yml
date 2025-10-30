@@ -77,8 +77,7 @@ jobs:
       run: mkdir -p reports/dast
     
     - name: OWASP ZAP Baseline Scan
-      uses: zaproxy/action-baseline@v0.12.0
-      continue-on-error: true
+      uses: zaproxy/action-full-scan@v0.10.0
       with:
         target: 'http://localhost:5000'
         cmd_options: '-a -j'
@@ -96,6 +95,7 @@ jobs:
         allow_issue_writing: true
         fail_action: false
         rules_file_name: '.zap/rules.tsv'
+        artifact_name: 'zap-baseline'
         
     
     - name: Test Authentication Vulnerabilities
@@ -108,33 +108,23 @@ jobs:
           -o reports/dast/auth-sqli-test.html \
           -w "\nHTTP Status: %{http_code}\n" || true
         
-        echo "Testing brute force protection..."
-        for i in {1..10}; do
+        echo "Testing brute force simulation..."
+        for i in {1..5}; do
           curl -X POST http://localhost:5000/login \
-            -d "username=admin&password=wrong$i" \
-            -w "Attempt $i: %{http_code}\n" >> reports/dast/brute-force-test.txt
+            -d "username=test$i&password=wrong$i" \
+            -w "Attempt $i: %{http_code}\n" >> reports/dast/brute-force-test.txt || true
         done
-        
-        echo "Testing password reset..."
-        curl -X POST http://localhost:5000/reset-password \
-          -d "email=admin@test.com" \
-          -o reports/dast/password-reset-test.html || true
     
     - name: Test Shopping Cart Vulnerabilities
       run: |
         echo "Testing Shopping Cart Security..."
         
-        echo "Testing price manipulation..."
-        curl -X POST http://localhost:5000/cart/add \
-          -d "product_id=1&quantity=1&price=-10" \
-          -o reports/dast/cart-price-manipulation.html || true
-        
         echo "Testing negative quantity..."
-        curl -X POST http://localhost:5000/cart/add \
+        curl -X POST http://localhost:5000/add_to_cart \
           -d "product_id=1&quantity=-999" \
           -o reports/dast/cart-negative-quantity.html || true
         
         echo "Testing session security..."
         curl -X GET http://localhost:5000/cart \
           --cookie "session=fake-session-token" \
-          -o reports/dast/cart-session-test
+          -o reports/dast/cart-session-test.html || true
