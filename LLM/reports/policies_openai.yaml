@@ -1,0 +1,50 @@
+```yaml
+policies:
+  - policy_id: "POL-001"
+    title: "Vulnerable Component Management"
+    mapping:
+      iso27001: ["A.14.2.5"]
+      nist_csf: ["PR.IP-3"]
+    scope: "All software components in production environments."
+    controls:
+      - "Regularly scan all software components for known vulnerabilities using tools like OWASP Dependency-Check."
+      - "Immediately update or replace any components identified with known vulnerabilities."
+      - "Maintain an inventory of all software components and their versions."
+    verification:
+      - "Conduct SAST checks to ensure no vulnerable components are present in the codebase."
+      - "Perform SCA checks to validate the integrity of third-party libraries."
+    owner: "Software Development Team"
+    status: "Active"
+
+  - policy_id: "POL-002"
+    title: "SQL Injection Prevention"
+    mapping:
+      iso27001: ["A.14.2.1"]
+      nist_csf: ["PR.AC-4"]
+    scope: "All applications that interact with databases."
+    controls:
+      - "Implement parameterized queries or prepared statements to prevent SQL injection."
+      - "Conduct regular code reviews focusing on database interaction points."
+      - "Utilize web application firewalls to detect and block SQL injection attempts."
+    verification:
+      - "Run SAST checks to identify potential SQL injection vulnerabilities in the code."
+      - "Perform DAST checks to test for SQL injection vulnerabilities in deployed applications."
+    owner: "Application Security Team"
+    status: "Active"
+
+  - policy_id: "POL-003"
+    title: "Clickjacking Protection"
+    mapping:
+      iso27001: ["A.14.2.2"]
+      nist_csf: ["PR.IP-5"]
+    scope: "All web applications."
+    controls:
+      - "Ensure that the X-Frame-Options header is included in all HTTP responses."
+      - "Configure web servers to prevent clickjacking attacks by setting appropriate security headers."
+      - "Regularly review and update security headers as part of the deployment process."
+    verification:
+      - "Use DAST tools like OWASP ZAP to check for the presence of security headers."
+      - "Conduct periodic security assessments to ensure compliance with header policies."
+    owner: "Web Development Team"
+    status: "Active"
+```
