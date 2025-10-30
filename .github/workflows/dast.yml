@@ -84,7 +84,7 @@ jobs:
         allow_issue_writing: true
         fail_action: false
         rules_file_name: '.zap/rules.tsv'
-        artifact_name: 'zap-baseline-scan'
+        
     
     - name: OWASP ZAP Full Scan
       uses: zaproxy/action-full-scan@v0.10.0
@@ -94,7 +94,7 @@ jobs:
         allow_issue_writing: true
         fail_action: false
         rules_file_name: '.zap/rules.tsv'
-        artifact_name: 'zap-full-scan'
+        
     
     - name: Test Authentication Vulnerabilities
       run: |
