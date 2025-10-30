@@ -57,6 +57,8 @@ jobs:
         cmd_options: '-a'
         allow_issue_writing: false
         fail_action: false
+        issue_title: false
+        token: ''
     
     - name: Upload ZAP Baseline Report
       uses: actions/upload-artifact@v4
@@ -67,6 +69,7 @@ jobs:
           report_html.html
           report_md.md
           report_json.json
+        if-no-files-found: warn
     
     - name: Run OWASP ZAP Full Scan
       uses: zaproxy/action-full-scan@v0.12.0
@@ -76,6 +79,8 @@ jobs:
         cmd_options: '-a'
         allow_issue_writing: false
         fail_action: false
+        issue_title: false
+        token: ''
     
     - name: Upload ZAP Full Scan Report
       uses: actions/upload-artifact@v4
@@ -86,6 +91,7 @@ jobs:
           report_html.html
           report_md.md
           report_json.json
+        if-no-files-found: warn
     
     - name: DAST Summary
       if: always()
