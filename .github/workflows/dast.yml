@@ -71,26 +71,82 @@ jobs:
     
     - name: Generate DAST Summary Report
       run: |
-        echo "Generating DAST summary..."
-        cat > reports/dast-summary.txt << 'EOF'
-        ================================
-        OWASP ZAP DAST Scan Summary
-        ================================
+        echo "Generating DAST summary from scan results..."
         
-        Baseline Scan: Completed
-        Full Scan: Completed
+        # Install jq for JSON parsing
+        sudo apt-get update && sudo apt-get install -y jq
         
-        Reports generated:
-        - zap-baseline-report.html
-        - zap-baseline-report.json
-        - zap-baseline-report.md
-        - zap-full-scan-report.html
-        - zap-full-scan-report.json
-        - zap-full-scan-report.md
+        # Initialize counters
+        BASELINE_HIGH=0
+        BASELINE_MEDIUM=0
+        BASELINE_LOW=0
+        BASELINE_INFO=0
+        FULL_HIGH=0
+        FULL_MEDIUM=0
+        FULL_LOW=0
+        FULL_INFO=0
         
-        Check the artifacts for detailed vulnerability reports.
+        # Parse baseline scan results
+        if [ -f reports/zap-baseline-report.json ]; then
+          BASELINE_HIGH=$(jq '[.site[0].alerts[] | select(.riskcode == "3")] | length' reports/zap-baseline-report.json 2>/dev/null || echo 0)
+          BASELINE_MEDIUM=$(jq '[.site[0].alerts[] | select(.riskcode == "2")] | length' reports/zap-baseline-report.json 2>/dev/null || echo 0)
+          BASELINE_LOW=$(jq '[.site[0].alerts[] | select(.riskcode == "1")] | length' reports/zap-baseline-report.json 2>/dev/null || echo 0)
+          BASELINE_INFO=$(jq '[.site[0].alerts[] | select(.riskcode == "0")] | length' reports/zap-baseline-report.json 2>/dev/null || echo 0)
+        fi
+        
+        # Parse full scan results
+        if [ -f reports/zap-full-scan-report.json ]; then
+          FULL_HIGH=$(jq '[.site[0].alerts[] | select(.riskcode == "3")] | length' reports/zap-full-scan-report.json 2>/dev/null || echo 0)
+          FULL_MEDIUM=$(jq '[.site[0].alerts[] | select(.riskcode == "2")] | length' reports/zap-full-scan-report.json 2>/dev/null || echo 0)
+          FULL_LOW=$(jq '[.site[0].alerts[] | select(.riskcode == "1")] | length' reports/zap-full-scan-report.json 2>/dev/null || echo 0)
+          FULL_INFO=$(jq '[.site[0].alerts[] | select(.riskcode == "0")] | length' reports/zap-full-scan-report.json 2>/dev/null || echo 0)
+        fi
+        
+        BASELINE_TOTAL=$((BASELINE_HIGH + BASELINE_MEDIUM + BASELINE_LOW + BASELINE_INFO))
+        FULL_TOTAL=$((FULL_HIGH + FULL_MEDIUM + FULL_LOW + FULL_INFO))
+        
+        # Create text summary
+        cat > reports/dast-summary.txt << EOF
+        ================================================================
+        OWASP ZAP DAST Security Scan Summary
+        ================================================================
+        
+        BASELINE SCAN: ${BASELINE_TOTAL} issues found
+        - High:     ${BASELINE_HIGH}
+        - Medium:   ${BASELINE_MEDIUM}
+        - Low:      ${BASELINE_LOW}
+        - Info:     ${BASELINE_INFO}
+        
+        FULL SCAN: ${FULL_TOTAL} issues found
+        - High:     ${FULL_HIGH}
+        - Medium:   ${FULL_MEDIUM}
+        - Low:      ${FULL_LOW}
+        - Info:     ${FULL_INFO}
+        ================================================================
         EOF
+        
         cat reports/dast-summary.txt
+        
+        # Create GitHub Step Summary
+        echo "# 🔒 OWASP ZAP DAST Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Total issues found: $FULL_TOTAL" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Severity Breakdown (Full Scan):" >> $GITHUB_STEP_SUMMARY
+        echo "- **🔴 HIGH**: $FULL_HIGH" >> $GITHUB_STEP_SUMMARY
+        echo "- **🟠 MEDIUM**: $FULL_MEDIUM" >> $GITHUB_STEP_SUMMARY
+        echo "- **🟡 LOW**: $FULL_LOW" >> $GITHUB_STEP_SUMMARY
+        echo "- **🔵 INFO**: $FULL_INFO" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Add top vulnerabilities to summary
+        echo "### 🚨 High & Medium Severity Issues:" >> $GITHUB_STEP_SUMMARY
+        if [ -f reports/zap-full-scan-report.json ]; then
+          jq -r '.site[0].alerts[] | select(.riskcode == "3" or .riskcode == "2") | "- **\(.risk)** \(.name) → \(.instances[0].uri // "Multiple locations")"' reports/zap-full-scan-report.json 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "No high/medium issues found" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "---" >> $GITHUB_STEP_SUMMARY
+        echo "📊 **Download the full reports from artifacts for detailed information**" >> $GITHUB_STEP_SUMMARY
     
     - name: Upload DAST reports
       uses: actions/upload-artifact@v4
@@ -103,18 +159,5 @@ jobs:
     
     - name: Display DAST Results
       run: |
-        echo "## DAST Scan Results"
-        echo "### ZAP Baseline Scan Results:"
-        if [ -f reports/zap-baseline-report.md ]; then
-          cat reports/zap-baseline-report.md
-        else
-          echo "Baseline scan report not found"
-        fi
-        
-        echo ""
-        echo "### ZAP Full Scan Results:"
-        if [ -f reports/zap-full-scan-report.md ]; then
-          cat reports/zap-full-scan-report.md
-        else
-          echo "Full scan report not found"
-        fi
+        echo "## DAST Scan Completed"
+        cat reports/dast-summary.txt
