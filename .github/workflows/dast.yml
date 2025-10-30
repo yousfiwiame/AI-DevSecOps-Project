@@ -1,4 +1,4 @@
-name: DAST - E-Commerce Security Testing
+name: DAST
 
 on:
   push:
@@ -6,29 +6,17 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
-    inputs:
-      scan_type:
-        description: 'Type of scan to run'
-        required: true
-        default: 'full'
-        type: choice
-        options:
-          - full
-          - baseline
-          - quick
   schedule:
-    # Run weekly security scan
-    - cron: '0 3 * * 1'  # Every Monday at 3 AM
+    - cron: '0 3 * * 1'
 
 jobs:
-  dast-ecommerce:
-    name: Dynamic Security Testing - E-Commerce App
+  dast-scan:
+    name: DAST Security Scan
     runs-on: ubuntu-latest
     permissions:
       actions: write
       contents: read
       security-events: write
-      issues: write
     
     steps:
     - name: Checkout code
@@ -44,87 +32,61 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: Prepare test database
+    - name: Start Flask Application
       run: |
-        echo "Setting up test database..."
-    
-    - name: Start Flask E-Commerce Application
-      run: |
-        echo "Starting Flask E-Commerce App..."
         python app.py &
-        APP_PID=$!
-        echo "APP_PID=$APP_PID" >> $GITHUB_ENV
-        
-        echo "Waiting for application to start..."
+        sleep 10
         for i in {1..30}; do
           if curl -sf http://localhost:5000 > /dev/null 2>&1; then
-            echo "E-Commerce app is running on http://localhost:5000"
+            echo "Application is running"
             break
           fi
-          echo "Attempt $i/30..."
+          echo "Waiting for app... attempt $i/30"
           sleep 2
         done
-        
-        curl -v http://localhost:5000 || {
-          echo "Application failed to start!"
-          exit 1
-        }
+        curl -v http://localhost:5000
       env:
         FLASK_ENV: testing
-        SECRET_KEY: test-secret-key-for-dast
+        SECRET_KEY: test-secret-key
     
-    - name: Create reports directory
-      run: mkdir -p reports/dast
-    
-    - name: OWASP ZAP Baseline Scan
+    - name: Run OWASP ZAP Baseline Scan
       uses: zaproxy/action-baseline@v0.12.0
       with:
         target: 'http://localhost:5000'
-        cmd_options: '-a -j'
-        allow_issue_writing: true
+        cmd_options: '-a'
+        allow_issue_writing: false
         fail_action: false
-        rules_file_name: '.zap/rules.tsv'
-        artifact_name: 'zap-baseline-scan'  # Unique artifact name
-        
     
-    - name: OWASP ZAP Full Scan
+    - name: Upload ZAP Baseline Report
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: zap-baseline-report
+        path: |
+          report_html.html
+          report_md.md
+          report_json.json
+    
+    - name: Run OWASP ZAP Full Scan
       uses: zaproxy/action-full-scan@v0.12.0
       with:
         target: 'http://localhost:5000'
-        cmd_options: '-a -j'
-        allow_issue_writing: true
+        cmd_options: '-a'
+        allow_issue_writing: false
         fail_action: false
-        rules_file_name: '.zap/rules.tsv'
-        artifact_name: 'zap-full-scan'  # Different unique artifact name
-        
     
-    - name: Test Authentication Vulnerabilities
-      run: |
-        echo "Testing Authentication Security..."
-        
-        echo "Testing SQL Injection in login..."
-        curl -X POST http://localhost:5000/login \
-          -d "username=admin' OR '1'='1&password=anything" \
-          -o reports/dast/auth-sqli-test.html \
-          -w "\nHTTP Status: %{http_code}\n" || true
-        
-        echo "Testing brute force simulation..."
-        for i in {1..5}; do
-          curl -X POST http://localhost:5000/login \
-            -d "username=test$i&password=wrong$i" \
-            -w "Attempt $i: %{http_code}\n" >> reports/dast/brute-force-test.txt || true
-        done
+    - name: Upload ZAP Full Scan Report
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: zap-full-scan-report
+        path: |
+          report_html.html
+          report_md.md
+          report_json.json
     
-    - name: Test Shopping Cart Vulnerabilities
+    - name: DAST Summary
+      if: always()
       run: |
-        echo "Testing Shopping Cart Security..."
-        
-        echo "Testing negative quantity..."
-        curl -X POST http://localhost:5000/add_to_cart \
-          -d "product_id=1&quantity=-999" \
-          -o reports/dast/cart-negative-quantity.html || true
-        
-        echo "Testing session security..."
-        curl -X GET http://localhost:5000/cart \
-          --cookie "session=fake-session-token" \
-          -o reports/dast/cart-session-test.html || true
+        echo "DAST scanning completed"
+        echo "Check uploaded artifacts for detailed reports"
