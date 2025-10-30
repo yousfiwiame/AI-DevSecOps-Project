@@ -25,7 +25,7 @@ jobs:
     name: Dynamic Security Testing - E-Commerce App
     runs-on: ubuntu-latest
     permissions:
-      actions: read
+      actions: write
       contents: read
       security-events: write
       issues: write
