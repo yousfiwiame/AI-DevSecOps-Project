@@ -14,9 +14,8 @@ jobs:
     name: DAST Security Scan
     runs-on: ubuntu-latest
     permissions:
-      actions: write
       contents: read
-      security-events: write
+      actions: write
     
     steps:
     - name: Checkout code
@@ -55,6 +54,7 @@ jobs:
         target: 'http://localhost:5000'
         rules_file_name: '.zap/rules.tsv'
         cmd_options: '-a'
+        allow_issue_writing: false
     
     - name: Upload ZAP Baseline Report
       uses: actions/upload-artifact@v4
@@ -73,6 +73,7 @@ jobs:
         target: 'http://localhost:5000'
         rules_file_name: '.zap/rules.tsv'
         cmd_options: '-a'
+        allow_issue_writing: false
     
     - name: Upload ZAP Full Scan Report
       uses: actions/upload-artifact@v4
