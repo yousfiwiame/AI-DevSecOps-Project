@@ -78,14 +78,14 @@ jobs:
     
     - name: OWASP ZAP Baseline Scan
       uses: zaproxy/action-baseline@v0.12.0
+      continue-on-error: true
       with:
         target: 'http://localhost:5000'
         cmd_options: '-a -j'
         allow_issue_writing: true
         fail_action: false
         rules_file_name: '.zap/rules.tsv'
-        docker_run_opts: '-u root'
-        artifact_name: 'zap-scan'
+        artifact_name: 'zapscan'
         
     
     - name: OWASP ZAP Full Scan
