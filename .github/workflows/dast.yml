@@ -77,25 +77,23 @@ jobs:
       run: mkdir -p reports/dast
     
     - name: OWASP ZAP Baseline Scan
-      uses: zaproxy/action-full-scan@v0.10.0
+      uses: zaproxy/action-baseline@v0.12.0
       with:
         target: 'http://localhost:5000'
         cmd_options: '-a -j'
         allow_issue_writing: true
         fail_action: false
         rules_file_name: '.zap/rules.tsv'
-        artifact_name: 'zapscan'
         
     
     - name: OWASP ZAP Full Scan
-      uses: zaproxy/action-full-scan@v0.10.0
+      uses: zaproxy/action-full-scan@v0.12.0
       with:
         target: 'http://localhost:5000'
         cmd_options: '-a -j'
         allow_issue_writing: true
         fail_action: false
         rules_file_name: '.zap/rules.tsv'
-        artifact_name: 'zap-baseline'
         
     
     - name: Test Authentication Vulnerabilities
