@@ -16,11 +16,6 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Prepare reports directory with correct permissions
-      run: |
-        mkdir -p reports
-        chmod 777 reports
-    
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -30,7 +25,6 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        sudo apt-get update && sudo apt-get install -y jq
     
     - name: Start Flask Application
       run: |
@@ -52,144 +46,131 @@ jobs:
     
     - name: Run OWASP ZAP Baseline Scan
       run: |
-        echo "Running OWASP ZAP Baseline scan..."
-        docker run --network="host" -v $(pwd)/reports:/zap/wrk/:rw -u $(id -u):$(id -g) \
+        echo "=========================================="
+        echo "Running OWASP ZAP Baseline Scan"
+        echo "=========================================="
+        docker run --network="host" \
           ghcr.io/zaproxy/zaproxy:stable \
-          zap-baseline.py -t http://localhost:5000 \
-          -r zap-baseline-report.html \
-          -J zap-baseline-report.json \
-          -w zap-baseline-report.md || true
+          zap-baseline.py -t http://localhost:5000 2>&1 | tee baseline_scan.log
         
-        echo "Baseline scan completed. Checking files..."
-        ls -lah reports/
+        echo ""
+        echo "Baseline scan completed!"
+    
+    - name: Parse Baseline Results
+      if: always()
+      run: |
+        echo "Parsing baseline scan results..."
+        
+        # Count issues
+        BASELINE_WARN=$(grep -c "^WARN-NEW:" baseline_scan.log 2>/dev/null || echo 0)
+        BASELINE_FAIL=$(grep -c "^FAIL-NEW:" baseline_scan.log 2>/dev/null || echo 0)
+        
+        echo "BASELINE_WARN=$BASELINE_WARN" >> $GITHUB_ENV
+        echo "BASELINE_FAIL=$BASELINE_FAIL" >> $GITHUB_ENV
+        
+        echo "Found: $BASELINE_FAIL failures, $BASELINE_WARN warnings"
     
     - name: Run OWASP ZAP Full Scan
       run: |
-        echo "Running OWASP ZAP Full scan..."
-        docker run --network="host" -v $(pwd)/reports:/zap/wrk/:rw -u $(id -u):$(id -g) \
+        echo "=========================================="
+        echo "Running OWASP ZAP Full Scan"
+        echo "=========================================="
+        docker run --network="host" \
           ghcr.io/zaproxy/zaproxy:stable \
-          zap-full-scan.py -t http://localhost:5000 \
-          -r zap-full-scan-report.html \
-          -J zap-full-scan-report.json \
-          -w zap-full-scan-report.md || true
+          zap-full-scan.py -t http://localhost:5000 2>&1 | tee full_scan.log
         
-        echo "Full scan completed. Checking files..."
-        ls -lah reports/
+        echo ""
+        echo "Full scan completed!"
     
-    - name: Generate DAST Summary Report
+    - name: Parse Full Scan Results
+      if: always()
       run: |
-        echo "Generating DAST summary from scan results..."
+        echo "Parsing full scan results..."
         
-        # Initialize counters
-        BASELINE_HIGH=0
-        BASELINE_MEDIUM=0
-        BASELINE_LOW=0
-        BASELINE_INFO=0
-        FULL_HIGH=0
-        FULL_MEDIUM=0
-        FULL_LOW=0
-        FULL_INFO=0
+        # Count issues
+        FULL_WARN=$(grep -c "^WARN-NEW:" full_scan.log 2>/dev/null || echo 0)
+        FULL_FAIL=$(grep -c "^FAIL-NEW:" full_scan.log 2>/dev/null || echo 0)
         
-        # Parse baseline scan results
-        if [ -f reports/zap-baseline-report.json ]; then
-          echo "✓ Baseline JSON found, parsing..."
-          
-          if jq empty reports/zap-baseline-report.json 2>/dev/null; then
-            if jq -e '.site' reports/zap-baseline-report.json >/dev/null 2>&1; then
-              BASELINE_HIGH=$(jq '[.site[0].alerts[]? | select(.riskcode == "3")] | length' reports/zap-baseline-report.json 2>/dev/null || echo 0)
-              BASELINE_MEDIUM=$(jq '[.site[0].alerts[]? | select(.riskcode == "2")] | length' reports/zap-baseline-report.json 2>/dev/null || echo 0)
-              BASELINE_LOW=$(jq '[.site[0].alerts[]? | select(.riskcode == "1")] | length' reports/zap-baseline-report.json 2>/dev/null || echo 0)
-              BASELINE_INFO=$(jq '[.site[0].alerts[]? | select(.riskcode == "0")] | length' reports/zap-baseline-report.json 2>/dev/null || echo 0)
-            fi
-          fi
-        else
-          echo "✗ Baseline JSON not found"
-        fi
+        echo "FULL_WARN=$FULL_WARN" >> $GITHUB_ENV
+        echo "FULL_FAIL=$FULL_FAIL" >> $GITHUB_ENV
         
-        # Parse full scan results
-        if [ -f reports/zap-full-scan-report.json ]; then
-          echo "✓ Full scan JSON found, parsing..."
-          
-          if jq empty reports/zap-full-scan-report.json 2>/dev/null; then
-            if jq -e '.site' reports/zap-full-scan-report.json >/dev/null 2>&1; then
-              FULL_HIGH=$(jq '[.site[0].alerts[]? | select(.riskcode == "3")] | length' reports/zap-full-scan-report.json 2>/dev/null || echo 0)
-              FULL_MEDIUM=$(jq '[.site[0].alerts[]? | select(.riskcode == "2")] | length' reports/zap-full-scan-report.json 2>/dev/null || echo 0)
-              FULL_LOW=$(jq '[.site[0].alerts[]? | select(.riskcode == "1")] | length' reports/zap-full-scan-report.json 2>/dev/null || echo 0)
-              FULL_INFO=$(jq '[.site[0].alerts[]? | select(.riskcode == "0")] | length' reports/zap-full-scan-report.json 2>/dev/null || echo 0)
-            fi
-          fi
-        else
-          echo "✗ Full scan JSON not found"
-        fi
+        echo "Found: $FULL_FAIL failures, $FULL_WARN warnings"
+    
+    - name: Generate DAST Summary
+      if: always()
+      run: |
+        # Calculate totals
+        TOTAL_ISSUES=$((BASELINE_FAIL + BASELINE_WARN + FULL_FAIL + FULL_WARN))
         
-        BASELINE_TOTAL=$((BASELINE_HIGH + BASELINE_MEDIUM + BASELINE_LOW + BASELINE_INFO))
-        FULL_TOTAL=$((FULL_HIGH + FULL_MEDIUM + FULL_LOW + FULL_INFO))
-        
-        echo "Results: Baseline=$BASELINE_TOTAL, Full=$FULL_TOTAL"
-        
-        # Create text summary
-        cat > reports/dast-summary.txt << EOF
-        ================================================================
-        OWASP ZAP DAST Security Scan Summary
-        ================================================================
-        
-        BASELINE SCAN: ${BASELINE_TOTAL} issues found
-        - High:     ${BASELINE_HIGH}
-        - Medium:   ${BASELINE_MEDIUM}
-        - Low:      ${BASELINE_LOW}
-        - Info:     ${BASELINE_INFO}
-        
-        FULL SCAN: ${FULL_TOTAL} issues found
-        - High:     ${FULL_HIGH}
-        - Medium:   ${FULL_MEDIUM}
-        - Low:      ${FULL_LOW}
-        - Info:     ${FULL_INFO}
-        ================================================================
-        EOF
-        
-        cat reports/dast-summary.txt
+        echo "=========================================="
+        echo "DAST Scan Summary"
+        echo "=========================================="
+        echo "Baseline Scan: $BASELINE_FAIL failures, $BASELINE_WARN warnings"
+        echo "Full Scan: $FULL_FAIL failures, $FULL_WARN warnings"
+        echo "TOTAL ISSUES: $TOTAL_ISSUES"
+        echo "=========================================="
         
         # Create GitHub Step Summary
-        echo "# 🔒 OWASP ZAP DAST Report" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "## Total issues found: $FULL_TOTAL" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Severity Breakdown (Full Scan):" >> $GITHUB_STEP_SUMMARY
-        echo "- **🔴 HIGH**: $FULL_HIGH" >> $GITHUB_STEP_SUMMARY
-        echo "- **🟠 MEDIUM**: $FULL_MEDIUM" >> $GITHUB_STEP_SUMMARY
-        echo "- **🟡 LOW**: $FULL_LOW" >> $GITHUB_STEP_SUMMARY
-        echo "- **🔵 INFO**: $FULL_INFO" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
+        {
+          echo "# 🔒 OWASP ZAP DAST Report"
+          echo ""
+          echo "## Total issues found: **$TOTAL_ISSUES**"
+          echo ""
+          echo "### Scan Results:"
+          echo ""
+          echo "| Scan Type | Failures | Warnings |"
+          echo "|-----------|----------|----------|"
+          echo "| Baseline  | $BASELINE_FAIL | $BASELINE_WARN |"
+          echo "| Full Scan | $FULL_FAIL | $FULL_WARN |"
+          echo ""
+          echo "### 🚨 Vulnerabilities Found:"
+          echo ""
+        } >> $GITHUB_STEP_SUMMARY
         
-        # Add top vulnerabilities
-        echo "### 🚨 High & Medium Severity Issues:" >> $GITHUB_STEP_SUMMARY
-        if [ -f reports/zap-full-scan-report.json ] && jq -e '.site[0].alerts' reports/zap-full-scan-report.json >/dev/null 2>&1; then
-          ISSUES_FOUND=$(jq -r '.site[0].alerts[]? | select(.riskcode == "3" or .riskcode == "2") | "- **\(.risk)** \(.name) → Found in \(.count) location(s)"' reports/zap-full-scan-report.json 2>/dev/null | head -20)
-          if [ -n "$ISSUES_FOUND" ]; then
-            echo "$ISSUES_FOUND" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "✅ No high/medium issues found" >> $GITHUB_STEP_SUMMARY
+        # Extract and display vulnerabilities
+        if [ -f full_scan.log ]; then
+          echo "**Warnings (Medium Severity):**" >> $GITHUB_STEP_SUMMARY
+          grep "^WARN-NEW:" full_scan.log | sed 's/WARN-NEW: //' | cut -d'[' -f1 | sort -u | head -20 | while read vuln; do
+            echo "- $vuln" >> $GITHUB_STEP_SUMMARY
+          done
+          
+          if [ $FULL_FAIL -gt 0 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Failures (High Severity):**" >> $GITHUB_STEP_SUMMARY
+            grep "^FAIL-NEW:" full_scan.log | sed 's/FAIL-NEW: //' | cut -d'[' -f1 | sort -u | head -10 | while read vuln; do
+              echo "- $vuln" >> $GITHUB_STEP_SUMMARY
+            done
           fi
-        else
-          echo "_Reports not available - check artifacts for details_" >> $GITHUB_STEP_SUMMARY
         fi
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "---" >> $GITHUB_STEP_SUMMARY
-        echo "📊 **Download the full reports from artifacts for detailed information**" >> $GITHUB_STEP_SUMMARY
+        
+        {
+          echo ""
+          echo "---"
+          echo "📊 **Full scan logs available in artifacts**"
+        } >> $GITHUB_STEP_SUMMARY
     
-    - name: Upload DAST reports
+    - name: Upload Scan Logs
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: dast-reports
-        path: reports/
+        name: dast-scan-logs
+        path: |
+          baseline_scan.log
+          full_scan.log
     
-    - name: Display DAST Results
+    - name: Display Final Summary
       if: always()
       run: |
-        echo "## DAST Scan Completed"
-        if [ -f reports/dast-summary.txt ]; then
-          cat reports/dast-summary.txt
-        else
-          echo "Summary file not found"
-        fi
+        echo ""
+        echo "╔════════════════════════════════════════╗"
+        echo "║     DAST Security Scan Complete       ║"
+        echo "╚════════════════════════════════════════╝"
+        echo ""
+        echo "📊 Results:"
+        echo "   Baseline: $BASELINE_FAIL failures, $BASELINE_WARN warnings"
+        echo "   Full Scan: $FULL_FAIL failures, $FULL_WARN warnings"
+        echo ""
+        echo "   TOTAL: $((BASELINE_FAIL + BASELINE_WARN + FULL_FAIL + FULL_WARN)) security issues found"
+        echo ""
+        echo "✅ Check the 'Summary' tab for detailed results"
+        echo "📦 Download artifacts for complete scan logs"
