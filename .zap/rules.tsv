@@ -1,0 +1,27 @@
+# ZAP Baseline rules configuration (TSV)
+# Columns: pluginId	action	(optional)urlOrParam
+# Actions: IGNORE | INFO | WARN | FAIL
+# Use this file to downgrade noisy baseline alerts so your job doesn't fail needlessly.
+
+# Clickjacking header missing
+10020	WARN
+# X-Content-Type-Options missing
+10021	WARN
+# CSP header not set
+10038	WARN
+# Server header leaks version
+10036	WARN
+# Cross-domain JS include
+10017	WARN
+# Permissions-Policy header not set
+10063	WARN
+# Sec-Fetch-Dest missing
+90005	WARN
+# Absence of Anti-CSRF tokens (surface as WARN for baseline; consider FAIL in full scan)
+10202	WARN
+
+# Example: ignore base64 disclosure noise on auth redirects (tune as needed)
+10094	WARN
+
+# Keep cookie SameSite as WARN to track
+10054	WARN

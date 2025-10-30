@@ -84,6 +84,8 @@ jobs:
         allow_issue_writing: true
         fail_action: false
         rules_file_name: '.zap/rules.tsv'
+        docker_run_opts: '-u root'
+        artifact_name: 'zap-scan'
         
     
     - name: OWASP ZAP Full Scan
