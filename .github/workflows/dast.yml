@@ -28,6 +28,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        sudo apt-get update && sudo apt-get install -y jq
     
     - name: Start Flask Application
       run: |
@@ -56,7 +57,17 @@ jobs:
           -r zap-baseline-report.html \
           -J zap-baseline-report.json \
           -w zap-baseline-report.md || true
-        echo "Baseline scan completed"
+        
+        echo "Checking if baseline reports were generated..."
+        ls -lah reports/
+        
+        if [ -f reports/zap-baseline-report.json ]; then
+          echo "Baseline JSON report found"
+          echo "First 500 chars of JSON:"
+          head -c 500 reports/zap-baseline-report.json
+        else
+          echo "WARNING: Baseline JSON report not found!"
+        fi
     
     - name: Run OWASP ZAP Full Scan
       run: |
@@ -67,14 +78,21 @@ jobs:
           -r zap-full-scan-report.html \
           -J zap-full-scan-report.json \
           -w zap-full-scan-report.md || true
-        echo "Full scan completed"
+        
+        echo "Checking if full scan reports were generated..."
+        ls -lah reports/
+        
+        if [ -f reports/zap-full-scan-report.json ]; then
+          echo "Full scan JSON report found"
+          echo "First 500 chars of JSON:"
+          head -c 500 reports/zap-full-scan-report.json
+        else
+          echo "WARNING: Full scan JSON report not found!"
+        fi
     
     - name: Generate DAST Summary Report
       run: |
         echo "Generating DAST summary from scan results..."
-        
-        # Install jq for JSON parsing
-        sudo apt-get update && sudo apt-get install -y jq
         
         # Initialize counters
         BASELINE_HIGH=0
@@ -86,24 +104,51 @@ jobs:
         FULL_LOW=0
         FULL_INFO=0
         
-        # Parse baseline scan results
+        # Parse baseline scan results with better error handling
         if [ -f reports/zap-baseline-report.json ]; then
-          BASELINE_HIGH=$(jq '[.site[0].alerts[] | select(.riskcode == "3")] | length' reports/zap-baseline-report.json 2>/dev/null || echo 0)
-          BASELINE_MEDIUM=$(jq '[.site[0].alerts[] | select(.riskcode == "2")] | length' reports/zap-baseline-report.json 2>/dev/null || echo 0)
-          BASELINE_LOW=$(jq '[.site[0].alerts[] | select(.riskcode == "1")] | length' reports/zap-baseline-report.json 2>/dev/null || echo 0)
-          BASELINE_INFO=$(jq '[.site[0].alerts[] | select(.riskcode == "0")] | length' reports/zap-baseline-report.json 2>/dev/null || echo 0)
+          echo "Parsing baseline report..."
+          
+          # Check if file has valid JSON
+          if jq empty reports/zap-baseline-report.json 2>/dev/null; then
+            echo "Valid JSON detected"
+            
+            # Try different JSON structures
+            if jq -e '.site' reports/zap-baseline-report.json >/dev/null 2>&1; then
+              BASELINE_HIGH=$(jq '[.site[0].alerts[]? | select(.riskcode == "3")] | length' reports/zap-baseline-report.json 2>/dev/null || echo 0)
+              BASELINE_MEDIUM=$(jq '[.site[0].alerts[]? | select(.riskcode == "2")] | length' reports/zap-baseline-report.json 2>/dev/null || echo 0)
+              BASELINE_LOW=$(jq '[.site[0].alerts[]? | select(.riskcode == "1")] | length' reports/zap-baseline-report.json 2>/dev/null || echo 0)
+              BASELINE_INFO=$(jq '[.site[0].alerts[]? | select(.riskcode == "0")] | length' reports/zap-baseline-report.json 2>/dev/null || echo 0)
+            fi
+          else
+            echo "Invalid JSON in baseline report"
+          fi
         fi
         
-        # Parse full scan results
+        # Parse full scan results with better error handling
         if [ -f reports/zap-full-scan-report.json ]; then
-          FULL_HIGH=$(jq '[.site[0].alerts[] | select(.riskcode == "3")] | length' reports/zap-full-scan-report.json 2>/dev/null || echo 0)
-          FULL_MEDIUM=$(jq '[.site[0].alerts[] | select(.riskcode == "2")] | length' reports/zap-full-scan-report.json 2>/dev/null || echo 0)
-          FULL_LOW=$(jq '[.site[0].alerts[] | select(.riskcode == "1")] | length' reports/zap-full-scan-report.json 2>/dev/null || echo 0)
-          FULL_INFO=$(jq '[.site[0].alerts[] | select(.riskcode == "0")] | length' reports/zap-full-scan-report.json 2>/dev/null || echo 0)
+          echo "Parsing full scan report..."
+          
+          # Check if file has valid JSON
+          if jq empty reports/zap-full-scan-report.json 2>/dev/null; then
+            echo "Valid JSON detected"
+            
+            # Try different JSON structures
+            if jq -e '.site' reports/zap-full-scan-report.json >/dev/null 2>&1; then
+              FULL_HIGH=$(jq '[.site[0].alerts[]? | select(.riskcode == "3")] | length' reports/zap-full-scan-report.json 2>/dev/null || echo 0)
+              FULL_MEDIUM=$(jq '[.site[0].alerts[]? | select(.riskcode == "2")] | length' reports/zap-full-scan-report.json 2>/dev/null || echo 0)
+              FULL_LOW=$(jq '[.site[0].alerts[]? | select(.riskcode == "1")] | length' reports/zap-full-scan-report.json 2>/dev/null || echo 0)
+              FULL_INFO=$(jq '[.site[0].alerts[]? | select(.riskcode == "0")] | length' reports/zap-full-scan-report.json 2>/dev/null || echo 0)
+            fi
+          else
+            echo "Invalid JSON in full scan report"
+          fi
         fi
         
         BASELINE_TOTAL=$((BASELINE_HIGH + BASELINE_MEDIUM + BASELINE_LOW + BASELINE_INFO))
         FULL_TOTAL=$((FULL_HIGH + FULL_MEDIUM + FULL_LOW + FULL_INFO))
+        
+        echo "Baseline totals: HIGH=$BASELINE_HIGH MEDIUM=$BASELINE_MEDIUM LOW=$BASELINE_LOW INFO=$BASELINE_INFO"
+        echo "Full scan totals: HIGH=$FULL_HIGH MEDIUM=$FULL_MEDIUM LOW=$FULL_LOW INFO=$FULL_INFO"
         
         # Create text summary
         cat > reports/dast-summary.txt << EOF
@@ -141,8 +186,15 @@ jobs:
         
         # Add top vulnerabilities to summary
         echo "### 🚨 High & Medium Severity Issues:" >> $GITHUB_STEP_SUMMARY
-        if [ -f reports/zap-full-scan-report.json ]; then
-          jq -r '.site[0].alerts[] | select(.riskcode == "3" or .riskcode == "2") | "- **\(.risk)** \(.name) → \(.instances[0].uri // "Multiple locations")"' reports/zap-full-scan-report.json 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "No high/medium issues found" >> $GITHUB_STEP_SUMMARY
+        if [ -f reports/zap-full-scan-report.json ] && jq -e '.site[0].alerts' reports/zap-full-scan-report.json >/dev/null 2>&1; then
+          ISSUES_FOUND=$(jq -r '.site[0].alerts[]? | select(.riskcode == "3" or .riskcode == "2") | "- **\(.risk)** \(.name) → \(.instances[0].uri // "Multiple locations")"' reports/zap-full-scan-report.json 2>/dev/null)
+          if [ -n "$ISSUES_FOUND" ]; then
+            echo "$ISSUES_FOUND" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No high/medium issues found" >> $GITHUB_STEP_SUMMARY
+          fi
+        else
+          echo "_Unable to parse vulnerability details_" >> $GITHUB_STEP_SUMMARY
         fi
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "---" >> $GITHUB_STEP_SUMMARY
@@ -150,14 +202,14 @@ jobs:
     
     - name: Upload DAST reports
       uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: dast-reports
         path: |
-          reports/zap-baseline-report.*
-          reports/zap-full-scan-report.*
-          reports/dast-summary.txt
+          reports/
     
     - name: Display DAST Results
+      if: always()
       run: |
         echo "## DAST Scan Completed"
         cat reports/dast-summary.txt
