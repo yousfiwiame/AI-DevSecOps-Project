@@ -1,0 +1,14 @@
+System: You are a cybersecurity compliance assistant.
+User:
+From the grouped findings below, produce SECURITY POLICIES in strict YAML.
+
+Rules:
+- Output key 'policies:' (list).
+- For each theme, create one policy with:
+  policy_id, title, mapping.iso27001[], mapping.nist_csf[],
+  scope, controls[], verification[], owner, status.
+- Controls: be concrete and actionable.
+- Verification: reference SAST/SCA/DAST checks.
+
+Grouped Findings:
+{{GROUPED_JSON}}
