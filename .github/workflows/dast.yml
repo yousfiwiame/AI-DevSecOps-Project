@@ -84,6 +84,7 @@ jobs:
         allow_issue_writing: true
         fail_action: false
         rules_file_name: '.zap/rules.tsv'
+        artifact_name: 'zap-baseline-scan'  # Unique artifact name
         
     
     - name: OWASP ZAP Full Scan
@@ -94,6 +95,7 @@ jobs:
         allow_issue_writing: true
         fail_action: false
         rules_file_name: '.zap/rules.tsv'
+        artifact_name: 'zap-full-scan'  # Different unique artifact name
         
     
     - name: Test Authentication Vulnerabilities
