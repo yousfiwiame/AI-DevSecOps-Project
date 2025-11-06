@@ -1,0 +1,33 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Unified Vulnerabilities",
+    "type": "array",
+    "items": {
+      "type": "object",
+      "properties": {
+        "vulnerability": { "type": ["string", "null"] },
+        "type": { "type": ["string", "null"] },
+        "severity": { "type": "string", "enum": ["CRITICAL","HIGH","MEDIUM","LOW"] },
+        "cwe": { "type": ["string", "null"] },
+        "file": { "type": ["string", "null"] },
+        "line": { "type": ["integer", "string", "null"] },
+        "description": { "type": ["string", "null"] },
+        "remediation": { "type": ["string", "null"] },
+        "tool": { "type": ["string", "null"] },
+        "cve": { "type": ["string", "null"] },
+        "url": { "type": ["string", "null"] },
+        "endpoint": { "type": ["string", "null"] },
+        "dependency": { "type": ["string", "null"] },
+        "package": { "type": ["string", "null"] },
+        "version": { "type": ["string", "null"] }
+      },
+      "required": ["severity", "description", "tool"],
+      "anyOf": [
+        {"required": ["vulnerability"]},
+        {"required": ["type"]}
+      ]
+    }
+  }
+  
+  
+  

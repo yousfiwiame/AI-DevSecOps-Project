@@ -14,20 +14,23 @@ prometheus-client==0.19.0
 # Security Tools Integration
 # Note: These will be called via command line in the pipeline
 
-# LLM Integration
+# LLM Integration (for local models - optional)
 transformers==4.46.0
 torch==2.8.0
 accelerate==0.34.0
-huggingface-hub==0.26.0
 tokenizers>=0.20.0
 
-# For API-based LLMs
-openai==1.3.0
-anthropic==0.7.0
+# FREE API-based LLMs (priority - use these first!)
+google-generativeai>=0.8.0  # Google Gemini API (FREE tier)
+groq>=0.4.0                  # Groq API (FREE tier)
+huggingface-hub>=0.26.0      # Hugging Face (FREE but limited model access)
+# OpenRouter.ai - uses requests library (already included above)
+# Models: DeepSeek V3, Gemini 2.0 Flash, Llama 3.3 70B, GPT-OSS 20B, Nemotron Nano, Mistral 7B
 
 # Evaluation Metrics
-nltk==3.8.1
-rouge-score==0.1.2
+nltk>=3.8.1
+rouge-score>=0.1.2
+sacrebleu>=2.4.2
 
 # Report Parsing
 beautifulsoup4==4.12.2
@@ -38,8 +41,8 @@ xmltodict==0.13.0
 numpy>=2.1.0; python_version>="3.13"
 numpy>=1.26.0,<2.0.0; python_version<"3.13"
 requests==2.31.0
-python-dotenv==1.0.0
-pyyaml==6.0.1
+python-dotenv>=1.0.0
+pyyaml>=6.0.1
 
 # Data visualization
 pandas==2.2.3

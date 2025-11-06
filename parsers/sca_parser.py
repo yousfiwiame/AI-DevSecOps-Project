@@ -61,23 +61,25 @@ class SCAParser(BaseParser):
             # Check if this is the unified SCA summary format (from generate_sca_summary.py)
             if 'vulnerabilities' in data and isinstance(data['vulnerabilities'], list):
                 # This is the sca-summary.json format
-                for vuln in data['vulnerabilities']:
-                    # Already in normalized format, just need to adjust structure
-                    normalized = {
-                        'vulnerability': vuln.get('type', 'Dependency Vulnerability'),
-                        'severity': vuln.get('severity', 'UNKNOWN'),
-                        'cwe': vuln.get('cwe', 'N/A'),
-                        'file': vuln.get('file', 'requirements.txt'),
-                        'line': vuln.get('line', 'N/A'),
-                        'description': vuln.get('description', 'No description'),
-                        'remediation': f"Update {vuln.get('package', 'dependency')} to latest secure version",
-                        'cve': vuln.get('cve', 'N/A'),
-                        'dependency': vuln.get('package', 'Unknown'),
-                        'package': vuln.get('package', 'Unknown'),
-                        'version': vuln.get('version', 'Unknown'),
-                        'tool': vuln.get('tool', 'Unknown')
-                    }
-                    vulnerabilities.append(self.normalize(normalized))
+                vuln_list = data['vulnerabilities']
+                if len(vuln_list) > 0:
+                    for vuln in vuln_list:
+                        # Already in normalized format, just need to adjust structure
+                        normalized = {
+                            'vulnerability': vuln.get('type', 'Dependency Vulnerability'),
+                            'severity': vuln.get('severity', 'UNKNOWN'),
+                            'cwe': vuln.get('cwe', 'N/A'),
+                            'file': vuln.get('file', 'requirements.txt'),
+                            'line': vuln.get('line', 'N/A'),
+                            'description': vuln.get('description', 'No description'),
+                            'remediation': f"Update {vuln.get('package', 'dependency')} to version {vuln.get('fix_versions', ['latest'])[0] if vuln.get('fix_versions') and len(vuln.get('fix_versions', [])) > 0 else 'latest'}",
+                            'cve': vuln.get('cve', 'N/A'),
+                            'dependency': vuln.get('package', 'Unknown'),
+                            'package': vuln.get('package', 'Unknown'),
+                            'version': vuln.get('version', 'Unknown'),
+                            'tool': vuln.get('tool', 'Unknown')
+                        }
+                        vulnerabilities.append(self.normalize(normalized))
             # Check if this is OWASP Dependency-Check format (fallback)
             elif 'dependencies' in data:
                 # Legacy format - OWASP Dependency-Check structure

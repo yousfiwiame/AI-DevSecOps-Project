@@ -1,0 +1,497 @@
+name: DevSecOps Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+jobs:
+  devsecops-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          npm install -g snyk || true
+
+      - name: Prepare reports directory
+        run: mkdir -p reports LLM/reports
+
+      # ============================================
+      # SAST: SonarCloud Analysis
+      # ============================================
+      # NOTE: Make sure Automatic Analysis is DISABLED in SonarCloud project settings
+      # Go to: SonarCloud → Your Project → Administration → Analysis Method
+      # Disable "Automatic Analysis" to allow CI/CD analysis
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Wait for SonarCloud analysis and download issues
+        if: always()
+        run: |
+          echo "⏳ Waiting for SonarCloud analysis to complete..."
+          sleep 30
+          
+          mkdir -p reports
+          echo "📥 Fetching SAST issues from SonarCloud..."
+          
+          PROJECT_KEY="yousfiwiame_AI-DevSecOps-Project-2"
+          SONARCLOUD_URL="https://sonarcloud.io"
+          
+          # Wait for analysis to be available (retry up to 5 times)
+          for i in {1..5}; do
+            echo "Attempt $i/5: Checking for issues..."
+            curl -sf -u "${{ secrets.SONAR_TOKEN }}:" \
+              "${SONARCLOUD_URL}/api/issues/search?componentKeys=${PROJECT_KEY}&ps=500" \
+              -o reports/sonarqube-issues.json 2>/dev/null
+            
+            if [ -f reports/sonarqube-issues.json ]; then
+              TOTAL=$(jq -r '.total // 0' reports/sonarqube-issues.json 2>/dev/null || echo "0")
+              if [ "$TOTAL" != "0" ] || [ -s reports/sonarqube-issues.json ]; then
+                echo "✅ Successfully retrieved issues from SonarCloud"
+                ISSUES_COUNT=$(jq '.issues | length' reports/sonarqube-issues.json 2>/dev/null || echo "0")
+                echo "📊 Found $TOTAL total issues ($ISSUES_COUNT in this page)"
+                if [ "$ISSUES_COUNT" -gt 0 ]; then
+                  echo "📋 Sample issue:"
+                  jq '.issues[0] | {rule, severity, component, message, type, line}' reports/sonarqube-issues.json || true
+                fi
+                break
+              fi
+            fi
+            
+            if [ $i -lt 5 ]; then
+              echo "⏳ Waiting 20 seconds before retry..."
+              sleep 20
+            fi
+          done
+          
+          # Ensure file exists even if empty
+          if [ ! -f reports/sonarqube-issues.json ]; then
+            echo '{"total":0,"issues":[]}' > reports/sonarqube-issues.json
+            echo "⚠️  No issues retrieved - creating empty report"
+          fi
+          
+          # Validate JSON
+          if ! jq . reports/sonarqube-issues.json >/dev/null 2>&1; then
+            echo "⚠️  Invalid JSON response, creating empty report"
+            echo '{"total":0,"issues":[]}' > reports/sonarqube-issues.json
+          fi
+
+      # ============================================
+      # SCA: Software Composition Analysis
+      # ============================================
+      - name: Run Snyk Auth
+        run: |
+          echo "Authenticating with Snyk..."
+          if [ -z "$SNYK_TOKEN" ]; then
+            echo "SNYK_TOKEN not set, using public scan"
+          fi
+
+      - name: Run Snyk Python Scan
+        run: |
+          echo "Running Snyk Python dependency scan..."
+          if [ -n "$SNYK_TOKEN" ]; then
+            snyk test --file=requirements.txt --json-file-output=reports/snyk-python-report.json || true
+            snyk test --file=requirements.txt --severity-threshold=high --output=reports/snyk-python-report.txt || true
+          else
+            echo "Skipping authenticated Snyk scan - token not available"
+          fi
+
+      - name: Run Snyk Code Scan
+        run: |
+          echo "Running Snyk Code analysis..."
+          if [ -n "$SNYK_TOKEN" ]; then
+            snyk code test --json-file-output=reports/snyk-code-report.json || true
+            snyk code test --severity-threshold=high --output=reports/snyk-code-report.txt || true
+          else
+            echo "Skipping authenticated Snyk Code scan - token not available"
+          fi
+
+      - name: Run OWASP Dependency-Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: "flask-ecommerce"
+          path: "."
+          format: "JSON,HTML"
+          out: "reports"
+        continue-on-error: true
+
+      - name: Run pip-audit
+        run: |
+          echo "Running pip-audit..."
+          pip install pip-audit
+          pip-audit --format=json --output=reports/pip-audit-report.json || true
+          pip-audit --output=reports/pip-audit-report.txt || true
+
+      - name: Run Safety Check
+        run: |
+          echo "Running Safety check..."
+          pip install safety
+          safety check --json --output reports/safety-detailed-report.json || true
+          safety check --output reports/safety-detailed-report.txt || true
+
+      - name: Trivy FS scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          ignore-unfixed: true
+          scanners: vuln,secret,license
+          severity: CRITICAL,HIGH,MEDIUM,LOW
+          format: sarif
+          output: reports/trivy.sarif
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      # ============================================
+      # DAST: Dynamic Application Security Testing
+      # ============================================
+      - name: Start Flask Application
+        run: |
+          echo "Starting Flask application..."
+          python app.py &
+          sleep 10
+          for i in {1..30}; do
+            if curl -sf http://localhost:5000 > /dev/null 2>&1; then
+              echo "Application is running on http://localhost:5000"
+              break
+            fi
+            echo "Waiting for app... attempt $i/30"
+            sleep 2
+          done
+          curl -v http://localhost:5000
+        env:
+          FLASK_ENV: testing
+          SECRET_KEY: test-secret-key
+
+      - name: Run OWASP ZAP Baseline Scan
+        run: |
+          echo "=========================================="
+          echo "Running OWASP ZAP Baseline Scan"
+          echo "=========================================="
+          docker run --rm --network="host" \
+            -v "$PWD":/zap/wrk \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
+            -t http://localhost:5000 \
+            -J reports/dast-baseline-report.json \
+            -r reports/dast-baseline-report.html \
+            -a 2>&1 | tee baseline_scan.log || true
+          echo ""
+          echo "Baseline scan completed!"
+
+      - name: Parse Baseline Results
+        if: always()
+        run: |
+          echo "Parsing baseline scan results..."
+          BASELINE_WARN_COUNT=$(grep -c "^WARN-NEW:" baseline_scan.log 2>/dev/null || echo "0")
+          BASELINE_FAIL_COUNT=$(grep -c "^FAIL-NEW:" baseline_scan.log 2>/dev/null || echo "0")
+          BASELINE_WARN_COUNT=$(echo "$BASELINE_WARN_COUNT" | tr -d '[:space:]' | grep -E '^[0-9]+$' || echo "0")
+          BASELINE_FAIL_COUNT=$(echo "$BASELINE_FAIL_COUNT" | tr -d '[:space:]' | grep -E '^[0-9]+$' || echo "0")
+          BASELINE_WARN_COUNT=${BASELINE_WARN_COUNT:-0}
+          BASELINE_FAIL_COUNT=${BASELINE_FAIL_COUNT:-0}
+          echo "BASELINE_WARN=${BASELINE_WARN_COUNT}" >> $GITHUB_ENV
+          echo "BASELINE_FAIL=${BASELINE_FAIL_COUNT}" >> $GITHUB_ENV
+          echo "Found: $BASELINE_FAIL_COUNT failures, $BASELINE_WARN_COUNT warnings"
+
+      - name: Run OWASP ZAP Full Scan
+        run: |
+          echo "=========================================="
+          echo "Running OWASP ZAP Full Scan"
+          echo "=========================================="
+          docker run --rm --network="host" \
+            -v "$PWD":/zap/wrk \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-full-scan.py \
+            -t http://localhost:5000 \
+            -J reports/dast-report.json \
+            -r reports/dast-report.html \
+            -a 2>&1 | tee full_scan.log || true
+          echo ""
+          echo "Full scan completed!"
+          if [ ! -f reports/dast-report.json ]; then
+            echo '{"site": []}' > reports/dast-report.json
+          fi
+
+      - name: Parse Full Scan Results
+        if: always()
+        run: |
+          echo "Parsing full scan results..."
+          FULL_WARN_COUNT=$(grep -c "^WARN-NEW:" full_scan.log 2>/dev/null || echo "0")
+          FULL_FAIL_COUNT=$(grep -c "^FAIL-NEW:" full_scan.log 2>/dev/null || echo "0")
+          FULL_WARN_COUNT=$(echo "$FULL_WARN_COUNT" | tr -d '[:space:]' | grep -E '^[0-9]+$' || echo "0")
+          FULL_FAIL_COUNT=$(echo "$FULL_FAIL_COUNT" | tr -d '[:space:]' | grep -E '^[0-9]+$' || echo "0")
+          FULL_WARN_COUNT=${FULL_WARN_COUNT:-0}
+          FULL_FAIL_COUNT=${FULL_FAIL_COUNT:-0}
+          echo "FULL_WARN=${FULL_WARN_COUNT}" >> $GITHUB_ENV
+          echo "FULL_FAIL=${FULL_FAIL_COUNT}" >> $GITHUB_ENV
+          echo "Found: $FULL_FAIL_COUNT failures, $FULL_WARN_COUNT warnings"
+
+      # ============================================
+      # Generate Summary Reports
+      # ============================================
+      - name: Generate SAST Summary
+        run: |
+          python scripts/generate_sast_summary.py || true
+
+      - name: Generate SCA Summary
+        run: |
+          python scripts/generate_sca_summary.py || true
+
+      - name: Generate DAST Summary
+        run: |
+          python scripts/generate_dast_summary.py || true
+
+      # ============================================
+      # Unify Reports and Generate Policies
+      # ============================================
+      - name: Normalize report filenames
+        run: |
+          if [ -f reports/issues.json ]; then
+            cp reports/issues.json reports/sonarqube-issues.json || true
+          fi
+          if [ ! -f reports/sonarqube-issues.json ]; then 
+            echo '{"issues": [], "total": 0}' > reports/sonarqube-issues.json
+          fi
+          if [ ! -s reports/dast-report.json ]; then 
+            echo '{"site": []}' > reports/dast-report.json
+          fi
+
+      - name: Check summary files before unification
+        run: |
+          echo "📋 Checking summary files before unification..."
+          echo ""
+          echo "=== SAST Summary ==="
+          if [ -f reports/sast-summary.json ]; then
+            SAST_VULNS=$(jq '.total_vulnerabilities // 0' reports/sast-summary.json)
+            echo "✅ sast-summary.json exists with $SAST_VULNS vulnerabilities"
+          else
+            echo "❌ sast-summary.json not found"
+          fi
+          
+          echo ""
+          echo "=== SCA Summary ==="
+          if [ -f reports/sca-summary.json ]; then
+            SCA_VULNS=$(jq '.total_vulnerabilities // 0' reports/sca-summary.json)
+            echo "✅ sca-summary.json exists with $SCA_VULNS vulnerabilities"
+          else
+            echo "❌ sca-summary.json not found"
+          fi
+          
+          echo ""
+          echo "=== DAST Summary ==="
+          if [ -f reports/dast-summary.json ]; then
+            DAST_VULNS=$(jq '.total_vulnerabilities // 0' reports/dast-summary.json)
+            echo "✅ dast-summary.json exists with $DAST_VULNS vulnerabilities"
+          else
+            echo "❌ dast-summary.json not found"
+          fi
+
+      - name: Unify all reports
+        run: |
+          echo "🔄 Unifying all security reports..."
+          rm -f LLM/reports/unified-vulnerabilities.json || true
+          
+          # Ensure reports directory exists
+          mkdir -p reports LLM/reports
+          
+          # Run parse_reports.py with explicit error handling
+          set +e  # Don't exit on error, we'll handle it
+          python scripts/parse_reports.py
+          PARSE_EXIT_CODE=$?
+          set -e  # Re-enable exit on error
+          
+          if [ $PARSE_EXIT_CODE -eq 0 ]; then
+            echo "✅ parse_reports.py completed successfully"
+          else
+            echo "⚠️  parse_reports.py exited with error code $PARSE_EXIT_CODE (check logs above)"
+          fi
+          
+          # Ensure unified report exists (parse_reports.py should create it, but ensure it's there)
+          if [ ! -f reports/unified-vulnerabilities.json ]; then
+            echo "⚠️  Unified report not found, creating empty one"
+            echo "[]" > reports/unified-vulnerabilities.json
+          fi
+          
+          # Validate and report stats
+          COUNT=$(jq '. | length' reports/unified-vulnerabilities.json 2>/dev/null || echo "0")
+          COUNT=${COUNT:-0}
+          
+          echo ""
+          echo "📊 Unified report stats:"
+          echo "   File: reports/unified-vulnerabilities.json"
+          echo "   Vulnerability count: $COUNT"
+          echo "   File size: $(wc -c < reports/unified-vulnerabilities.json || echo 0) bytes"
+          
+          # Always copy to LLM/reports (even if empty)
+          cp reports/unified-vulnerabilities.json LLM/reports/unified-vulnerabilities.json || true
+          
+          if [ "$COUNT" -gt 0 ]; then
+            echo "✅ Unified report copied to LLM/reports/ ($COUNT vulnerabilities)"
+          else
+            echo "⚠️  Unified report is empty ($COUNT vulnerabilities)"
+            echo "⚠️  LLM generation may skip or use sample data if configured"
+          fi
+          
+          # Final validation - ensure file exists and is valid JSON
+          if [ -f reports/unified-vulnerabilities.json ] && jq . reports/unified-vulnerabilities.json >/dev/null 2>&1; then
+            echo "✅ Unified report is valid JSON"
+          else
+            echo "❌ Unified report is missing or invalid JSON!"
+            echo "[]" > reports/unified-vulnerabilities.json
+            cp reports/unified-vulnerabilities.json LLM/reports/unified-vulnerabilities.json || true
+          fi
+
+      - name: Validate unified report (strict check)
+        run: |
+          echo "🔍 Validating unified report structure..."
+          python scripts/validate_unified_report.py
+          VALIDATION_EXIT=$?
+          
+          if [ $VALIDATION_EXIT -eq 1 ]; then
+            echo "⚠️  Unified report has structure validation errors"
+            echo "⚠️  Continuing anyway, but policies may be incomplete"
+          elif [ $VALIDATION_EXIT -eq 2 ]; then
+            echo "❌ Unified report file not found or invalid JSON"
+            exit 1
+          else
+            echo "✅ Unified report validation passed"
+          fi
+
+      - name: Generate policies with LLMs
+        run: |
+          echo "🤖 Generating security policies with LLMs..."
+          echo "📋 This will use ONLY real findings from security scans"
+          python LLM/Scripts/generate_policies.py
+          POLICY_EXIT=$?
+          
+          if [ $POLICY_EXIT -ne 0 ]; then
+            echo "⚠️  Policy generation encountered errors (exit code: $POLICY_EXIT)"
+            echo "⚠️  Check logs above for details"
+          else
+            echo "✅ Policy generation completed"
+          fi
+        env:
+          # FREE tier API keys (priority - use these first!)
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          HUGGINGFACEHUB_API_TOKEN: ${{ secrets.HUGGINGFACEHUB_API_TOKEN }}
+          # OpenRouter.ai (FREE tier - multiple models)
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+      - name: Evaluate generated policies (BLEU/ROUGE-L)
+        run: |
+          python LLM/Scripts/evaluate_text_metrics.py || true
+          python LLM/Scripts/evaluate_structure.py || true
+
+      - name: Build LLM comparison report
+        run: |
+          python LLM/Scripts/make_comparison_md.py || true
+
+      # ============================================
+      # Upload Artifacts and Display Summary
+      # ============================================
+      - name: Upload Trivy SARIF to Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('reports/trivy.sarif') != ''
+        continue-on-error: true
+        with:
+          sarif_file: reports/trivy.sarif
+
+      - name: Upload Security Reports Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unified-security-reports
+          path: |
+            reports/unified-vulnerabilities.json
+            reports/sast-summary.json
+            reports/sca-summary.json
+            reports/dast-summary.json
+            reports/sast-summary.txt
+            reports/sca-summary.txt
+            reports/dast-summary.txt
+            reports/sonarqube-issues.json
+            reports/snyk-*-report.*
+            reports/dependency-check-report.*
+            reports/pip-audit-report.*
+            reports/safety-detailed-report.*
+            reports/dast-report.json
+            reports/dast-baseline-report.json
+            baseline_scan.log
+            full_scan.log
+            LLM/reports/**
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Display Pipeline Summary
+        if: always()
+        run: |
+          {
+            echo "# 🔒 DevSecOps Pipeline Summary"
+            echo ""
+            echo "## Scan Results"
+            echo ""
+            
+            # SAST Summary
+            if [ -f reports/sonarqube-issues.json ]; then
+              SAST_COUNT=$(jq '.total // (.issues | length)' reports/sonarqube-issues.json 2>/dev/null || echo "0")
+              echo "### 🧩 SAST (SonarQube): **$SAST_COUNT** issues found"
+            fi
+            
+            # SCA Summary
+            if [ -f reports/sca-summary.json ]; then
+              SCA_COUNT=$(jq '.total_vulnerabilities // 0' reports/sca-summary.json 2>/dev/null || echo "0")
+              echo "### 📦 SCA: **$SCA_COUNT** vulnerabilities found"
+            fi
+            
+            # DAST Summary
+            BASELINE_FAIL=${BASELINE_FAIL:-0}
+            BASELINE_WARN=${BASELINE_WARN:-0}
+            FULL_FAIL=${FULL_FAIL:-0}
+            FULL_WARN=${FULL_WARN:-0}
+            DAST_TOTAL=$((BASELINE_FAIL + BASELINE_WARN + FULL_FAIL + FULL_WARN))
+            echo "### 🔒 DAST (OWASP ZAP): **$DAST_TOTAL** issues found"
+            echo "  - Baseline: $BASELINE_FAIL failures, $BASELINE_WARN warnings"
+            echo "  - Full Scan: $FULL_FAIL failures, $FULL_WARN warnings"
+            
+            echo ""
+            echo "## 📊 Unified Report"
+            if [ -f reports/unified-vulnerabilities.json ]; then
+              UNIFIED_COUNT=$(jq '. | length' reports/unified-vulnerabilities.json 2>/dev/null || echo "0")
+              echo "### Total vulnerabilities unified: **$UNIFIED_COUNT**"
+            fi
+            
+            echo ""
+            echo "## 🤖 LLM Policy Generation"
+            if [ -f LLM/reports/policies_gemini.yaml ]; then
+              echo "✅ Gemini policies generated (FREE tier)"
+            fi
+            if [ -f LLM/reports/policies_groq.yaml ]; then
+              echo "✅ Groq policies generated (FREE tier)"
+            fi
+            if [ -f LLM/reports/policies_openai.yaml ]; then
+              echo "✅ OpenAI policies generated (PAID)"
+            fi
+            if [ -f LLM/reports/policies_hf.yaml ]; then
+              echo "✅ Hugging Face policies generated"
+            fi
+            
+            echo ""
+            echo "✅ Pipeline completed successfully!"
+          } >> $GITHUB_STEP_SUMMARY

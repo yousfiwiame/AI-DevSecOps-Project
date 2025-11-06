@@ -6,6 +6,7 @@ Combines results from multiple SCA tools into a unified report
 
 import json
 import os
+import re
 from typing import Dict, List, Any
 
 def load_json_report(filepath: str) -> Dict[str, Any]:
@@ -20,6 +21,18 @@ def load_json_report(filepath: str) -> Dict[str, Any]:
 def combine_sca_reports():
     """Combine multiple SCA reports into a summary"""
     reports_dir = 'reports'
+    
+    # Debug: Check what files exist
+    print(f"Checking for SCA reports in: {reports_dir}/")
+    import os
+    if os.path.exists(reports_dir):
+        files = os.listdir(reports_dir)
+        print(f"Files in reports directory: {files}")
+        sca_files = [f for f in files if any(tool in f.lower() for tool in ['snyk', 'dependency', 'pip-audit', 'safety', 'trivy', 'sca'])]
+        print(f"SCA-related files: {sca_files}")
+    else:
+        print(f"Warning: Reports directory {reports_dir} does not exist!")
+    
     summary = {
         'scan_type': 'SCA Summary Report',
         'tools_used': [],
@@ -135,39 +148,84 @@ def combine_sca_reports():
                 summary['vulnerabilities_by_package'][package] = summary['vulnerabilities_by_package'].get(package, 0) + 1
     
     # Process pip-audit report
+    # Note: pip-audit JSON format is {"dependencies": [{"name": "...", "version": "...", "vulns": [...]}]}
     pip_audit_report = load_json_report(f'{reports_dir}/pip-audit-report.json')
     if pip_audit_report:
         summary['tools_used'].append('pip-audit')
-        vulnerabilities = pip_audit_report.get('vulnerabilities', [])
-        summary['tool_summaries']['pip-audit'] = {
-            'total_issues': len(vulnerabilities),
-            'packages_scanned': len(pip_audit_report.get('packages', []))
-        }
+        dependencies = pip_audit_report.get('dependencies', [])
         
-        for vuln in vulnerabilities:
-            vuln_data = {
-                'tool': 'pip-audit',
-                'type': 'Dependency Vulnerability',
-                'severity': vuln.get('severity', 'UNKNOWN').upper(),
-                'file': 'requirements.txt',
-                'line': 'N/A',
-                'description': vuln.get('description', 'No description'),
-                'cwe': vuln.get('cwe', 'N/A'),
-                'package': vuln.get('package', 'Unknown'),
-                'version': vuln.get('installed_version', 'Unknown'),
-                'cve': vuln.get('id', 'N/A')
-            }
-            summary['vulnerabilities'].append(vuln_data)
-            summary['total_vulnerabilities'] += 1
+        # Count vulnerabilities across all dependencies
+        total_vulns = 0
+        packages_with_vulns = []
+        
+        for dep in dependencies:
+            dep_name = dep.get('name', 'Unknown')
+            dep_version = dep.get('version', 'Unknown')
+            vulns = dep.get('vulns', [])
             
-            # Count by severity
-            severity = vuln_data['severity']
-            if severity in summary['vulnerabilities_by_severity']:
-                summary['vulnerabilities_by_severity'][severity] += 1
-            
-            # Count by package
-            package = vuln_data['package']
-            summary['vulnerabilities_by_package'][package] = summary['vulnerabilities_by_package'].get(package, 0) + 1
+            if vulns:
+                packages_with_vulns.append(dep_name)
+                total_vulns += len(vulns)
+                
+                # Process each vulnerability in this dependency
+                for vuln in vulns:
+                    # Determine severity from CVE/aliases or description
+                    severity = 'MEDIUM'  # Default
+                    vuln_id = vuln.get('id', '')
+                    description = vuln.get('description', '')
+                    
+                    # Try to determine severity from description or CVE
+                    if any(keyword in description.lower() for keyword in ['critical', 'remote code execution', 'rce']):
+                        severity = 'CRITICAL'
+                    elif any(keyword in description.lower() for keyword in ['high', 'arbitrary code', 'privilege escalation']):
+                        severity = 'HIGH'
+                    elif any(keyword in description.lower() for keyword in ['low', 'information disclosure']):
+                        severity = 'LOW'
+                    
+                    # Extract CVE from aliases or ID
+                    cve = 'N/A'
+                    aliases = vuln.get('aliases', [])
+                    if aliases:
+                        for alias in aliases:
+                            if alias.startswith('CVE-'):
+                                cve = alias
+                                break
+                    if cve == 'N/A' and vuln_id.startswith('CVE-'):
+                        cve = vuln_id
+                    elif cve == 'N/A' and 'CVE-' in description:
+                        # Try to extract CVE from description
+                        cve_match = re.search(r'CVE-\d{4}-\d+', description)
+                        if cve_match:
+                            cve = cve_match.group()
+                    
+                    vuln_data = {
+                        'tool': 'pip-audit',
+                        'type': 'Dependency Vulnerability',
+                        'severity': severity,
+                        'file': 'requirements.txt',
+                        'line': 'N/A',
+                        'description': description or f"Vulnerability in {dep_name} {dep_version}",
+                        'cwe': 'N/A',  # pip-audit doesn't provide CWE
+                        'package': dep_name,
+                        'version': dep_version,
+                        'cve': cve,
+                        'fix_versions': vuln.get('fix_versions', [])
+                    }
+                    summary['vulnerabilities'].append(vuln_data)
+                    summary['total_vulnerabilities'] += 1
+                    
+                    # Count by severity
+                    if severity in summary['vulnerabilities_by_severity']:
+                        summary['vulnerabilities_by_severity'][severity] += 1
+                    
+                    # Count by package
+                    summary['vulnerabilities_by_package'][dep_name] = summary['vulnerabilities_by_package'].get(dep_name, 0) + 1
+        
+        summary['tool_summaries']['pip-audit'] = {
+            'total_issues': total_vulns,
+            'packages_scanned': len(dependencies),
+            'vulnerable_packages': len(packages_with_vulns)
+        }
     
     # Process Safety detailed report
     safety_detailed_report = load_json_report(f'{reports_dir}/safety-detailed-report.json')
