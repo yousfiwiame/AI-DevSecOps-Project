@@ -10,6 +10,7 @@ A Flask e-commerce application integrated with a complete DevSecOps pipeline tha
 - [Getting Started](#getting-started)
 - [DevSecOps Pipeline](#devsecops-pipeline)
 - [Configuration](#configuration)
+- [LLM Models Used](#-llm-models-used)
 - [Evaluation Metrics](#evaluation-metrics)
 
 ## 🎯 Project Overview
@@ -18,7 +19,7 @@ This project implements a proof-of-concept DevSecOps pipeline that:
 
 1. **Scans for vulnerabilities** using SAST (Static Application Security Testing), SCA (Software Composition Analysis), and DAST (Dynamic Application Security Testing) tools
 2. **Parses and normalizes** security reports into a unified format
-3. **Generates security policies** using LLMs (OpenAI GPT and Hugging Face models) based on detected vulnerabilities
+3. **Generates security policies** using LLMs (Gemini, Groq, Hugging Face, and OpenRouter models) based on detected vulnerabilities
 4. **Evaluates policy quality** using BLEU and ROUGE-L metrics
 
 The Flask application intentionally contains **25+ security vulnerabilities** for testing and demonstration purposes.
@@ -55,15 +56,17 @@ AI-DevSecOps-Project-2/
 ├── LLM/                            # LLM policy generation module
 │   ├── README.md                  # LLM module documentation
 │   ├── Scripts/                  # LLM-related scripts
-│   │   ├── generate_policies.py  # Generates policies using OpenAI/HF APIs
+│   │   ├── generate_policies.py  # Generates policies using Gemini/Groq/HF/OpenRouter APIs
 │   │   ├── evaluate_text_metrics.py  # Computes BLEU and ROUGE-L metrics
 │   │   ├── evaluate_structure.py      # Validates policy structure compliance
 │   │   ├── make_comparison_md.py      # Creates comparison report
 │   │   ├── mappings.py                # CWE to ISO/NIST mappings
 │   │   └── prompt_template.txt        # LLM prompt template
 │   └── reports/                   # Generated policy files and evaluations
-│       ├── policies_openai.yaml  # OpenAI-generated policies
-│       ├── policies_hf.yaml     # Hugging Face-generated policies
+│       ├── policies_gemini.yaml  # Gemini-generated policies
+│       ├── policies_groq.yaml    # Groq-generated policies
+│       ├── policies_hf.yaml      # Hugging Face-generated policies
+│       ├── policies_openrouter_*.yaml  # OpenRouter-generated policies
 │       ├── unified-vulnerabilities.json  # Unified vulnerabilities (input for LLMs)
 │       ├── unified-vulnerabilities.sample.json  # Sample unified report
 │       ├── eval_metrics.txt      # BLEU/ROUGE-L evaluation results
@@ -133,7 +136,8 @@ AI-DevSecOps-Project-2/
 **Key Dependencies**:
 - Flask 3.0.0 - Web framework
 - transformers, torch - For Hugging Face LLM models
-- openai - For OpenAI API integration
+- google-generativeai - For Gemini API integration
+- groq - For Groq API integration
 - nltk, rouge-score, sacrebleu - For evaluation metrics
 - beautifulsoup4, lxml - For report parsing
 - pandas, matplotlib - For data visualization
@@ -146,10 +150,9 @@ AI-DevSecOps-Project-2/
 
 **What it does**:
 1. **SAST (Static Application Security Testing)**:
-   - Starts SonarQube Docker container
-   - Configures SonarQube project and generates authentication token
-   - Runs SonarScanner analysis
-   - Downloads SAST issues from SonarQube API
+   - Runs SonarCloud analysis using SonarCloud GitHub Action
+   - Configures SonarCloud project using `sonar-project.properties`
+   - Downloads SAST issues from SonarCloud API
    - Generates SAST summary report
 
 2. **SCA (Software Composition Analysis)**:
@@ -174,7 +177,7 @@ AI-DevSecOps-Project-2/
    - Normalizes report filenames
    - Unifies all reports into `unified-vulnerabilities.json`
    - Validates unified report
-   - Generates policies with LLMs (OpenAI, Hugging Face)
+   - Generates policies with LLMs (Gemini, Groq, Hugging Face, OpenRouter)
    - Evaluates policies (BLEU, ROUGE-L metrics)
    - Creates comparison reports
    - Uploads all reports and policies as artifact
@@ -189,7 +192,7 @@ AI-DevSecOps-Project-2/
 - **Complete visibility**: All scans and results visible in one workflow run
 - **Sequential execution**: Ensures proper order of operations (SAST → SCA → DAST → Unify → LLM)
 
-**Note**: Only SonarQube is used for SAST analysis. The SAST parser and summary generator can handle Bandit if its reports are added later, but the workflow currently only runs SonarQube.
+**Note**: SonarCloud (SonarQube Cloud) is used for SAST analysis. The SAST parser and summary generator can handle Bandit if its reports are added later, but the workflow currently only runs SonarCloud.
 
 ---
 
@@ -211,7 +214,7 @@ AI-DevSecOps-Project-2/
 **Purpose**: Parses SAST (Static Application Security Testing) reports.
 
 **Supports**:
-- **SonarQube**: Primary SAST tool used in this project (JSON format from SonarQube API)
+- **SonarCloud**: Primary SAST tool used in this project (JSON format from SonarCloud API)
 - **Bandit**: Python security linter reports (JSON format) - optional, not used in workflow
 
 **Output**: List of normalized vulnerability dictionaries with fields:
@@ -219,7 +222,7 @@ AI-DevSecOps-Project-2/
 
 **Inherits from**: `BaseParser`
 
-**Note**: The workflow currently only uses SonarQube for SAST. The parser supports Bandit format for backwards compatibility or future expansion.
+**Note**: The workflow currently only uses SonarCloud for SAST. The parser supports Bandit format for backwards compatibility or future expansion.
 
 #### `sca_parser.py`
 **Purpose**: Parses SCA (Software Composition Analysis) reports.
@@ -261,7 +264,7 @@ AI-DevSecOps-Project-2/
 4. Combines all findings into `reports/unified-vulnerabilities.json`
 5. Copies unified report to `LLM/reports/unified-vulnerabilities.json` for LLM processing
 
-**Note**: In the current setup, SAST only uses SonarQube, but the parser can handle Bandit if its reports exist.
+**Note**: In the current setup, SAST only uses SonarCloud, but the parser can handle Bandit if its reports exist.
 
 **Usage**:
 ```bash
@@ -320,7 +323,7 @@ python scripts/generate_sca_summary.py
 
 **What it does**:
 1. Loads reports from:
-   - SonarQube (`sonarqube-issues.json`) - primary tool used
+   - SonarCloud (`sonarqube-issues.json`) - primary tool used
    - Bandit (`bandit.json`) - optional, not used in current workflow
 2. Normalizes all vulnerabilities to common format
 3. Generates summary statistics
@@ -335,7 +338,7 @@ python scripts/generate_sast_summary.py
 - `reports/sast-summary.json` (structured JSON)
 - `reports/sast-summary.txt` (human-readable text)
 
-**Note**: Currently only SonarQube is used, but the script can process Bandit reports if they exist.
+**Note**: Currently only SonarCloud is used, but the script can process Bandit reports if they exist.
 
 ---
 
@@ -371,23 +374,29 @@ python scripts/generate_sast_summary.py
 **Contains**: Instructions for using LLM scripts, API key setup, troubleshooting.
 
 #### `LLM/Scripts/generate_policies.py`
-**Purpose**: Generates security policies using LLM APIs (OpenAI and Hugging Face).
+**Purpose**: Generates security policies using LLM APIs (Gemini, Groq, Hugging Face, and OpenRouter).
 
 **What it does**:
 1. Loads unified vulnerabilities from `LLM/reports/unified-vulnerabilities.json`
 2. Groups vulnerabilities by theme (SQL Injection, XSS, etc.)
 3. Builds prompt from template and grouped findings
-4. Calls OpenAI API to generate policies
-5. Calls Hugging Face API to generate policies
-6. Saves outputs as YAML files
+4. Calls Gemini API to generate policies (FREE tier available)
+5. Calls Groq API to generate policies (FREE tier available)
+6. Calls Hugging Face API to generate policies
+7. Calls OpenRouter API to generate policies (FREE tier models available)
+8. Saves outputs as YAML files
 
 **Environment Variables Required**:
-- `OPENAI_API_KEY`: OpenAI API key
+- `GEMINI_API_KEY`: Google Gemini API key (FREE tier available)
+- `GROQ_API_KEY`: Groq API key (FREE tier available)
 - `HUGGINGFACEHUB_API_TOKEN` or `HF_TOKEN`: Hugging Face API token
+- `OPENROUTER_API_KEY`: OpenRouter API key (FREE tier models available)
 
 **Output**:
-- `LLM/reports/policies_openai.yaml`
+- `LLM/reports/policies_gemini.yaml`
+- `LLM/reports/policies_groq.yaml`
 - `LLM/reports/policies_hf.yaml`
+- `LLM/reports/policies_openrouter_*.yaml` (multiple files for different models)
 
 **Usage**:
 ```bash
@@ -398,8 +407,8 @@ python LLM/Scripts/generate_policies.py
 **Purpose**: Computes BLEU and ROUGE-L metrics to evaluate policy quality.
 
 **What it does**:
-1. Loads OpenAI policies (reference) and Hugging Face policies (candidate)
-2. Computes BLEU score (n-gram precision)
+1. Loads generated policies from multiple models (Gemini, Groq, Hugging Face, OpenRouter)
+2. Computes BLEU score (n-gram precision) comparing different model outputs
 3. Computes ROUGE-L score (longest common subsequence)
 4. Validates schema compliance
 5. Writes evaluation results to `LLM/reports/eval_metrics.txt`
@@ -423,11 +432,11 @@ python LLM/Scripts/generate_policies.py
 **Output**: `LLM/reports/eval_structure.txt`
 
 #### `LLM/Scripts/make_comparison_md.py`
-**Purpose**: Generates a comparison report between OpenAI and Hugging Face policies.
+**Purpose**: Generates a comparison report between different LLM-generated policies.
 
 **What it does**:
 1. Reads evaluation metrics and structure reports
-2. Combines them into a markdown comparison report
+2. Combines them into a markdown comparison report comparing all generated policies
 3. Writes to `reports/llm_comparison.md`
 
 **Output**: `reports/llm_comparison.md`
@@ -534,9 +543,12 @@ pip install -r requirements.txt
 
 3. **Set up environment variables** (create `.env` file):
 ```bash
-OPENAI_API_KEY=your_openai_key
+GEMINI_API_KEY=your_gemini_key
+GROQ_API_KEY=your_groq_key
 HUGGINGFACEHUB_API_TOKEN=your_hf_token
+OPENROUTER_API_KEY=your_openrouter_key
 SNYK_TOKEN=your_snyk_token  # Optional
+SONAR_TOKEN=your_sonar_token  # Required for SAST analysis
 ```
 
 4. **Create required directories**:
@@ -559,8 +571,9 @@ Application will be available at `http://localhost:5000`
 
 2. **Run security scans manually**:
 ```bash
-# SAST (SonarQube - requires Docker and setup)
-# Note: SonarQube requires Docker setup. See devsecops.yml workflow for setup details.
+# SAST (SonarCloud - requires SonarCloud account and token)
+# Note: SonarCloud analysis is configured via sonar-project.properties
+# The workflow uses SonarCloud GitHub Action for automated analysis.
 # For local testing, you can also use Bandit:
 # bandit -r . -f json -o reports/bandit.json
 
@@ -575,13 +588,13 @@ docker run --rm --network="host" \
   zap-baseline.py -t http://localhost:5000 \
   -J reports/dast-report.json
 
-# Generate SAST summary (if you have SonarQube report)
+# Generate SAST summary (if you have SonarCloud report)
 python scripts/generate_sast_summary.py
 ```
 
 3. **Generate summaries**:
 ```bash
-# Generate SAST summary (requires SonarQube report or other SAST reports)
+# Generate SAST summary (requires SonarCloud report or other SAST reports)
 python scripts/generate_sast_summary.py
 
 # Generate SCA summary
@@ -618,9 +631,9 @@ Code Push/PR / Manual Trigger
 │  DevSecOps Pipeline (devsecops.yml)            │
 ├─────────────────────────────────────────────────┤
 │  1. SAST Analysis                                │
-│     - SonarQube Docker container                │
-│     - SonarScanner analysis                     │
-│     - Downloads SAST issues                     │
+│     - SonarCloud analysis                       │
+│     - SonarCloud GitHub Action                  │
+│     - Downloads SAST issues from SonarCloud API │
 │     - Generates SAST summary                    │
 │                                                  │
 │  2. SCA Analysis                                │
@@ -645,10 +658,15 @@ Code Push/PR / Manual Trigger
 │     - Create unified-vulnerabilities.json       │
 │                                                  │
 │  5. LLM Policy Generation                       │
-│     - OpenAI GPT-4o-mini                        │
+│     - Google Gemini (gemini-2.0-flash-exp,     │
+│       gemini-1.5-flash)                         │
+│     - Groq (llama-3.3-70b, llama-3.1-70b)     │
 │     - Hugging Face models                       │
-│     - Generates policies_openai.yaml            │
-│     - Generates policies_hf.yaml                │
+│     - OpenRouter (free tier models)             │
+│     - Generates policies_gemini.yaml           │
+│     - Generates policies_groq.yaml             │
+│     - Generates policies_hf.yaml               │
+│     - Generates policies_openrouter_*.yaml     │
 │                                                  │
 │  6. Evaluation                                  │
 │     - BLEU metrics                              │
@@ -669,11 +687,11 @@ Code Push/PR / Manual Trigger
 The project uses a **unified DevSecOps pipeline** that runs all security scans and policy generation in a single workflow:
 
 **`devsecops.yml`**: Complete DevSecOps pipeline
-- **SAST**: SonarQube analysis with Docker container
+- **SAST**: SonarCloud analysis using SonarCloud GitHub Action
 - **SCA**: Multiple tools (Snyk, Dependency-Check, pip-audit, Safety, Trivy)
 - **DAST**: OWASP ZAP baseline and full scans
 - **Unification**: All reports combined into `unified-vulnerabilities.json`
-- **Policy Generation**: LLM-based policy generation (OpenAI, Hugging Face)
+- **Policy Generation**: LLM-based policy generation (Gemini, Groq, Hugging Face, OpenRouter)
 - **Evaluation**: BLEU, ROUGE-L, and structural validation
 - **Artifacts**: All reports, summaries, and policies uploaded as single artifact
 
@@ -691,18 +709,62 @@ The project uses a **unified DevSecOps pipeline** that runs all security scans a
 
 Set these secrets in your GitHub repository settings:
 
-- `OPENAI_API_KEY`: OpenAI API key for policy generation
+- `GEMINI_API_KEY`: Google Gemini API key for policy generation (FREE tier available)
+- `GROQ_API_KEY`: Groq API key for policy generation (FREE tier available)
 - `HUGGINGFACEHUB_API_TOKEN`: Hugging Face API token
+- `OPENROUTER_API_KEY`: OpenRouter API key for policy generation (FREE tier models available)
+- `SONAR_TOKEN`: SonarCloud authentication token (required for SAST analysis)
 - `SNYK_TOKEN`: Snyk token for dependency scanning (optional)
 
 ### Local Configuration
 
 Create a `.env` file in the project root:
 ```
-OPENAI_API_KEY=your_key_here
-HUGGINGFACEHUB_API_TOKEN=your_token_here
-HF_MODEL=microsoft/Phi-3-mini-4k-instruct  # Optional: specify HF model
+GEMINI_API_KEY=your_gemini_key_here
+GROQ_API_KEY=your_groq_key_here
+HUGGINGFACEHUB_API_TOKEN=your_hf_token_here
+OPENROUTER_API_KEY=your_openrouter_key_here
+SONAR_TOKEN=your_sonar_token_here
+SNYK_TOKEN=your_snyk_token_here  # Optional
 ```
+
+---
+
+## 🤖 LLM Models Used
+
+The project uses multiple LLM providers to generate security policies, prioritizing free-tier models:
+
+### Google Gemini
+- **Models**: `gemini-2.0-flash-exp`, `gemini-1.5-flash`, `gemini-1.5-flash-latest`, `gemini-1.5-pro-latest`
+- **API**: Google Generative AI
+- **Cost**: FREE tier available
+- **Output**: `policies_gemini.yaml`
+
+### Groq
+- **Models**: `llama-3.3-70b-versatile`, `llama-3.1-70b-versatile`, `llama-3.1-8b-instant`, `mixtral-8x7b-32768`
+- **API**: Groq API
+- **Cost**: FREE tier available
+- **Output**: `policies_groq.yaml`
+
+### Hugging Face
+- **Models**: `HuggingFaceH4/zephyr-7b-beta`, `mistralai/Mistral-7B-Instruct-v0.2`, `microsoft/Phi-3-mini-4k-instruct`, `meta-llama/Llama-2-7b-chat-hf`
+- **API**: Hugging Face Inference API
+- **Cost**: FREE (may require access approval for some models)
+- **Output**: `policies_hf.yaml`
+
+### OpenRouter
+- **Models**: Multiple free-tier models including:
+  - `meta-llama/llama-3.1-8b-instruct:free`
+  - `meta-llama/llama-3.2-3b-instruct:free`
+  - `mistralai/mistral-7b-instruct:free`
+  - `huggingfaceh4/zephyr-7b-beta:free`
+  - `google/gemini-flash-1.5`
+  - And more
+- **API**: OpenRouter API
+- **Cost**: FREE tier models available
+- **Output**: `policies_openrouter_*.yaml` (multiple files, one per model)
+
+**Note**: The script tries models in priority order (Gemini → Groq → Hugging Face → OpenRouter) and uses the first successful generation. Multiple models can be used simultaneously for comparative analysis.
 
 ---
 
@@ -759,7 +821,7 @@ Checks for:
 
 - **Workflow Architecture**: The project uses a unified `devsecops.yml` workflow that runs all security scans (SAST, SCA, DAST) sequentially and then generates policies using LLMs. See the [DevSecOps Pipeline](#-devsecops-pipeline) section for details.
 
-- **API Costs**: LLM generation uses external APIs which may incur costs. Monitor usage.
+- **API Costs**: LLM generation uses external APIs. Most models used (Gemini, Groq, OpenRouter free tier) are available at no cost, but monitor usage for rate limits.
 
 ---
 
@@ -769,7 +831,7 @@ Checks for:
 - [ISO/IEC 27001](https://www.iso.org/standard/54534.html)
 - [OWASP Top 10](https://owasp.org/www-project-top-ten/)
 - [OWASP ZAP](https://www.zaproxy.org/)
-- [SonarQube](https://www.sonarqube.org/) - Primary SAST tool used in this project
+- [SonarCloud](https://sonarcloud.io/) - Primary SAST tool used in this project (SonarQube Cloud)
 - [Bandit](https://bandit.readthedocs.io/) - Optional SAST tool (parser supports it for local testing)
 
 ---
