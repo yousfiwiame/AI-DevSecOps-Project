@@ -1,4 +1,4 @@
-# 🛡️ AI-DevSecOps: Automated Security Policy Generation
+# 🛡️ AI-DevSecOps: Automated Security Policy Generation with LLMs
 
 <div align="center">
 
